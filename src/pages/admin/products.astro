@@ -392,16 +392,40 @@ const fee = settings?.global_fee_pct ?? 5;
     }
     imgs.forEach((imgSrc, idx) => {
       const tile = document.createElement('div');
-      tile.className = 'relative w-10 h-10 rounded-[6px] border border-[#E8E9ED] overflow-hidden bg-[#F1F2F5] shrink-0';
+      tile.className = 'relative w-14 h-14 rounded-[6px] border border-[#E8E9ED] overflow-hidden bg-[#F1F2F5] shrink-0 group';
       tile.innerHTML = `
         <img src="${imgSrc}" class="w-full h-full object-cover" />
-        <button type="button" class="absolute top-0 right-0 w-3.5 h-3.5 bg-black/60 text-white rounded-bl flex items-center justify-center text-[8px] hover:bg-black" data-idx="${idx}">✕</button>
+        <button type="button" class="absolute top-0 right-0 w-4 h-4 bg-black/60 text-white rounded-bl flex items-center justify-center text-[10px] hover:bg-black font-semibold" data-idx="${idx}" data-action="delete">✕</button>
+        <div class="absolute bottom-0 left-0 right-0 h-5 bg-black/50 flex justify-between items-center px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button type="button" class="text-white text-[10px] font-bold px-1 hover:text-[#1A8F89] disabled:opacity-30 disabled:hover:text-white btn-move-left" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''}>&lt;</button>
+          <button type="button" class="text-white text-[10px] font-bold px-1 hover:text-[#1A8F89] disabled:opacity-30 disabled:hover:text-white btn-move-right" data-idx="${idx}" ${idx === imgs.length - 1 ? 'disabled' : ''}>&gt;</button>
+        </div>
       `;
-      tile.querySelector('button')?.addEventListener('click', (e) => {
+      tile.querySelector('[data-action="delete"]')?.addEventListener('click', (e) => {
         const i = parseInt(e.currentTarget.dataset.idx);
         imgs.splice(i, 1);
         imagesJsonInput.value = JSON.stringify(imgs);
         renderParentImages();
+      });
+      tile.querySelector('.btn-move-left')?.addEventListener('click', (e) => {
+        const i = parseInt(e.currentTarget.dataset.idx);
+        if (i > 0) {
+          const temp = imgs[i];
+          imgs[i] = imgs[i - 1];
+          imgs[i - 1] = temp;
+          imagesJsonInput.value = JSON.stringify(imgs);
+          renderParentImages();
+        }
+      });
+      tile.querySelector('.btn-move-right')?.addEventListener('click', (e) => {
+        const i = parseInt(e.currentTarget.dataset.idx);
+        if (i < imgs.length - 1) {
+          const temp = imgs[i];
+          imgs[i] = imgs[i + 1];
+          imgs[i + 1] = temp;
+          imagesJsonInput.value = JSON.stringify(imgs);
+          renderParentImages();
+        }
       });
       previewContainer.appendChild(tile);
     });
@@ -747,4 +771,7 @@ const fee = settings?.global_fee_pct ?? 5;
       else { window.showToast?.((await res.json().catch(() => ({}))).error || 'Gagal menghapus produk.', 'error'); }
     } catch { window.showToast?.('Terjadi kesalahan jaringan.', 'error'); }
   };
+
+  // Exposed for E2E tests
+  window._test_renderParentImages = renderParentImages;
 </script>

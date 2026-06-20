@@ -328,6 +328,25 @@ test.describe('CUJ-6: Admin Order Workflow', () => {
       await expect(modal).not.toBeVisible({ timeout: 5000 });
     }
   });
+
+  test('admin can edit order quantity inline', async ({ page }) => {
+    await page.goto('/admin/orders');
+    const firstRow = page.locator('[data-testid="order-row"]').first();
+    if (await firstRow.count() > 0) {
+      const orderId = await firstRow.getAttribute('data-id');
+      const qtyInput = firstRow.locator(`[data-testid="qty-input-${orderId}"]`);
+      await expect(qtyInput).toBeVisible();
+
+      // Change quantity
+      await qtyInput.fill('4');
+      await qtyInput.dispatchEvent('change');
+
+      // Verify new quantity is stored and persists
+      const targetRow = page.locator(`[data-testid="order-row"][data-id="${orderId}"]`);
+      const targetInput = targetRow.locator(`[data-testid="qty-input-${orderId}"]`);
+      await expect(targetInput).toHaveValue('4');
+    }
+  });
 });
 
 // ============================================================
@@ -581,6 +600,35 @@ test.describe('CUJ-11: Admin Product CRUD', () => {
     await page.waitForLoadState('networkidle');
 
     await expect(page.locator('.product-row[data-name="Test Keyboard"]')).not.toBeVisible();
+  });
+
+  test('admin can reorder product images in modal', async ({ page }) => {
+    await page.goto('/admin/products');
+    await page.click('#btn-add-product');
+    await expect(page.locator('#product-modal')).toBeVisible();
+
+    await page.evaluate(() => {
+      const input = document.getElementById('input-images-json') as HTMLInputElement;
+      if (input) {
+        input.value = JSON.stringify(['https://example.com/image1.png', 'https://example.com/image2.png']);
+      }
+      (window as any)._test_renderParentImages?.();
+    });
+
+    const tiles = page.locator('#image-preview-container .group');
+    await expect(tiles).toHaveCount(2);
+
+    const leftBtn1 = tiles.nth(0).locator('.btn-move-left');
+    await expect(leftBtn1).toBeDisabled();
+
+    const rightBtn1 = tiles.nth(0).locator('.btn-move-right');
+    await expect(rightBtn1).toBeEnabled();
+    await rightBtn1.click();
+
+    const jsonVal = await page.locator('#input-images-json').inputValue();
+    const imgs = JSON.parse(jsonVal);
+    expect(imgs[0]).toBe('https://example.com/image2.png');
+    expect(imgs[1]).toBe('https://example.com/image1.png');
   });
 });
 

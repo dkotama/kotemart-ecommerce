@@ -814,6 +814,7 @@ const patchStatusSchema = z.object({
   price_idr_final: z.number().int().min(0).optional(),
   custom_fee_idr: z.number().int().min(0).optional(),
   manual_idr_override: z.number().int().min(0).optional(),
+  qty: z.number().int().min(1).optional(),
 });
 
 adminRouter.patch('/orders/:id/status', zValidator('json', patchStatusSchema), async (c) => {
@@ -862,6 +863,12 @@ adminRouter.patch('/orders/:id/status', zValidator('json', patchStatusSchema), a
     await c.env.DB.prepare(
       `UPDATE orders SET manual_idr_override = ?1 WHERE id = ?2`
     ).bind(body.manual_idr_override, id).run();
+  }
+
+  if (body.qty !== undefined) {
+    await c.env.DB.prepare(
+      `UPDATE orders SET qty = ?1 WHERE id = ?2`
+    ).bind(body.qty, id).run();
   }
 
   if (!body.status) {
