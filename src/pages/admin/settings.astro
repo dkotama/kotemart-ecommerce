@@ -276,17 +276,17 @@ const isGateOpen = settings.gate_status === 'Open';
 </AdminLayout>
 
 <script>
-  const toggleBtn = document.getElementById('gate-toggle-btn') as HTMLButtonElement;
-  const gateStatusText = document.getElementById('gate-status-text')!;
-  
-  const jpyRateInput = document.getElementById('jpy-rate-input') as HTMLInputElement;
-  const btnSaveRate = document.getElementById('btn-save-rate') as HTMLButtonElement;
-  
-  const feeInput = document.getElementById('fee-input') as HTMLInputElement;
-  const btnSaveFee = document.getElementById('btn-save-fee') as HTMLButtonElement;
+  const toggleBtn = document.getElementById('gate-toggle-btn');
+  const gateStatusText = document.getElementById('gate-status-text');
 
-  const telegramInput = document.getElementById('telegram-input') as HTMLInputElement;
-  const btnSaveTelegram = document.getElementById('btn-save-telegram') as HTMLButtonElement;
+  const jpyRateInput = document.getElementById('jpy-rate-input');
+  const btnSaveRate = document.getElementById('btn-save-rate');
+
+  const feeInput = document.getElementById('fee-input');
+  const btnSaveFee = document.getElementById('btn-save-fee');
+
+  const telegramInput = document.getElementById('telegram-input');
+  const btnSaveTelegram = document.getElementById('btn-save-telegram');
 
   // Gate Toggle Handler
   toggleBtn?.addEventListener('click', async () => {
@@ -327,7 +327,7 @@ const isGateOpen = settings.gate_status === 'Open';
   });
 
   // Save Settings helper
-  async function saveSettings(payload: Record<string, any>, successMsg: string) {
+  async function saveSettings(payload, successMsg) {
     try {
       const apiClient = (window as any).apiClient || fetch;
       const res = await apiClient('/api/admin/settings', {
@@ -384,31 +384,31 @@ const isGateOpen = settings.gate_status === 'Open';
 
   // Save Arrival Notification
   document.getElementById('btn-save-arrival')?.addEventListener('click', async () => {
-    const val = (document.getElementById('arrival-input') as HTMLInputElement).value.trim();
-    (document.getElementById('btn-save-arrival') as HTMLButtonElement).disabled = true;
+    const val = document.getElementById('arrival-input').value.trim();
+    document.getElementById('btn-save-arrival').disabled = true;
     await saveSettings({ arrival_notification: val }, 'Notification berhasil disimpan!');
-    (document.getElementById('btn-save-arrival') as HTMLButtonElement).disabled = false;
+    document.getElementById('btn-save-arrival').disabled = false;
   });
 
   // Save Bank Info
   document.getElementById('btn-save-bank')?.addEventListener('click', async () => {
-    const bankName = (document.getElementById('bank-name-input') as HTMLInputElement).value.trim();
-    const bankAccount = (document.getElementById('bank-account-input') as HTMLInputElement).value.trim();
-    const bankNameholder = (document.getElementById('bank-nameholder-input') as HTMLInputElement).value.trim();
-    (document.getElementById('btn-save-bank') as HTMLButtonElement).disabled = true;
+    const bankName = document.getElementById('bank-name-input').value.trim();
+    const bankAccount = document.getElementById('bank-account-input').value.trim();
+    const bankNameholder = document.getElementById('bank-nameholder-input').value.trim();
+    document.getElementById('btn-save-bank').disabled = true;
     await saveSettings({
       bank_name: bankName,
       bank_account_number: bankAccount,
       bank_account_name: bankNameholder,
     }, 'Data rekening berhasil disimpan!');
-    (document.getElementById('btn-save-bank') as HTMLButtonElement).disabled = false;
+    document.getElementById('btn-save-bank').disabled = false;
   });
 
   // Token Generation & Revocation
-  const btnGenerateToken = document.getElementById('btn-generate-token') as HTMLButtonElement;
-  const tokenLabelInput = document.getElementById('token-label-input') as HTMLInputElement;
-  const tokenShowModal = document.getElementById('token-show-modal') as any;
-  const rawTokenDisplay = document.getElementById('raw-token-display')!;
+  const btnGenerateToken = document.getElementById('btn-generate-token');
+  const tokenLabelInput = document.getElementById('token-label-input');
+  const tokenShowModal = document.getElementById('token-show-modal');
+  const rawTokenDisplay = document.getElementById('raw-token-display');
 
   btnGenerateToken?.addEventListener('click', async () => {
     const label = tokenLabelInput.value.trim();
@@ -418,7 +418,7 @@ const isGateOpen = settings.gate_status === 'Open';
     }
     btnGenerateToken.disabled = true;
     try {
-      const apiClient = (window as any).apiClient || fetch;
+      const apiClient = window.apiClient || fetch;
       const res = await apiClient('/api/admin/tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -444,13 +444,13 @@ const isGateOpen = settings.gate_status === 'Open';
 
   document.querySelectorAll('.btn-revoke-token').forEach(btn => {
     btn.addEventListener('click', async (e) => {
-      const target = e.currentTarget as HTMLButtonElement;
-      const id = target.dataset.id!;
+      const target = e.currentTarget;
+      const id = target.dataset.id;
       if (!confirm('Apakah Anda yakin ingin me-revoke token ini? Asisten AI yang menggunakan token ini akan kehilangan akses.')) return;
 
       target.disabled = true;
       try {
-        const apiClient = (window as any).apiClient || fetch;
+        const apiClient = window.apiClient || fetch;
         const res = await apiClient(`/api/admin/tokens/${id}`, { method: 'DELETE' });
         if (res.ok) {
           window.showToast?.('Token berhasil di-revoke!', 'success');

@@ -51,10 +51,8 @@ const authMiddleware = createMiddleware<{
       const user = await c.env.DB.prepare(`SELECT * FROM users WHERE id = ?1 AND is_active = 1`)
         .bind(tokenRow.user_id).first<User>();
       if (user) {
-        c.executionCtx.waitUntil(
-          c.env.DB.prepare(`UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?1`)
-            .bind(tokenRow.id).run()
-        );
+        c.env.DB.prepare(`UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?1`)
+          .bind(tokenRow.id).run().catch(() => {});
         c.set('user', user);
         return await next();
       }
@@ -287,33 +285,6 @@ const tagRouter = new Hono<{ Bindings: Env; Variables: { user: User } }>();
 tagRouter.get('/', authMiddleware, async (c) => {
   const result = await c.env.DB.prepare(`SELECT * FROM tags ORDER BY name ASC`).all();
   return c.json(result.results || []);
-});
-
-// POST /api/admin/tags — admin only
-const tagSchema = z.object({
-  id: z.string().optional(),
-  name: z.string().min(1).max(50),
-});
-
-adminRouter.post('/tags', zValidator('json', tagSchema), async (c) => {
-  const body = c.req.valid('json');
-  const id = body.id || crypto.randomUUID();
-
-  await c.env.DB.prepare(
-    `INSERT INTO tags (id, name) VALUES (?1, ?2)
-     ON CONFLICT(id) DO UPDATE SET name = excluded.name
-     ON CONFLICT(name) DO UPDATE SET id = id`
-  ).bind(id, body.name).run();
-
-  const created = await c.env.DB.prepare(`SELECT * FROM tags WHERE id = ?1 OR name = ?2`).bind(id, body.name).first();
-  return c.json(created);
-});
-
-// DELETE /api/admin/tags/:id — admin only
-adminRouter.delete('/tags/:id', async (c) => {
-  const id = c.req.param('id');
-  await c.env.DB.prepare(`DELETE FROM tags WHERE id = ?1`).bind(id).run();
-  return c.json({ ok: true });
 });
 
 // ============================================================
@@ -754,7 +725,10 @@ orderRouter.get('/mine', authMiddleware, async (c) => {
 
 // PATCH /api/orders/me/whatsapp — save buyer WhatsApp number
 const whatsappSchema = z.object({
-  whatsapp_number: z.string().min(5).max(20).regex(/^[0-9+\-\s()]+$/, 'Invalid phone number format'),
+  whatsapp_number: z.union([
+    z.literal(''),
+    z.string().min(5).max(20).regex(/^[0-9+\-\s()]+$/, 'Invalid phone number format'),
+  ]),
 });
 
 orderRouter.patch('/me/whatsapp', authMiddleware, zValidator('json', whatsappSchema), async (c) => {
@@ -762,7 +736,7 @@ orderRouter.patch('/me/whatsapp', authMiddleware, zValidator('json', whatsappSch
   const { whatsapp_number } = c.req.valid('json');
   await c.env.DB.prepare(
     `UPDATE users SET whatsapp_number = ?1 WHERE id = ?2`
-  ).bind(whatsapp_number, user.id).run();
+  ).bind(whatsapp_number || null, user.id).run();
   return c.json({ ok: true });
 });
 
@@ -774,6 +748,33 @@ const adminRouter = new Hono<{ Bindings: Env; Variables: { user: User } }>();
 
 // All admin routes require auth + admin role
 adminRouter.use('*', authMiddleware, adminMiddleware);
+
+// POST /api/admin/tags — admin only
+const tagSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1).max(50),
+});
+
+adminRouter.post('/tags', zValidator('json', tagSchema), async (c) => {
+  const body = c.req.valid('json');
+  const id = body.id || crypto.randomUUID();
+
+  await c.env.DB.prepare(
+    `INSERT INTO tags (id, name) VALUES (?1, ?2)
+     ON CONFLICT(id) DO UPDATE SET name = excluded.name
+     ON CONFLICT(name) DO UPDATE SET id = id`
+  ).bind(id, body.name).run();
+
+  const created = await c.env.DB.prepare(`SELECT * FROM tags WHERE id = ?1 OR name = ?2`).bind(id, body.name).first();
+  return c.json(created);
+});
+
+// DELETE /api/admin/tags/:id — admin only
+adminRouter.delete('/tags/:id', async (c) => {
+  const id = c.req.param('id');
+  await c.env.DB.prepare(`DELETE FROM tags WHERE id = ?1`).bind(id).run();
+  return c.json({ ok: true });
+});
 
 // GET /api/admin/orders — all orders with buyer info
 adminRouter.get('/orders', async (c) => {

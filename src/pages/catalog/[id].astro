@@ -28,6 +28,7 @@ try {
 
     if (productRow) {
       const images = (() => { try { return JSON.parse(productRow.images as unknown as string); } catch { return []; } })();
+      const notes = (() => { try { return JSON.parse(productRow.notes as unknown as string); } catch { return []; } })();
       const varResult = await db.prepare(
         `SELECT * FROM product_variants WHERE product_id = ? AND is_deleted = 0 ORDER BY sort_order ASC`
       ).bind(id).all();
@@ -43,6 +44,7 @@ try {
       product = {
         ...productRow,
         images,
+        notes,
         variants,
         min_price_jpy: variants.length ? Math.min(...variants.map(v => v.price_jpy)) : 0,
         max_price_jpy: variants.length ? Math.max(...variants.map(v => v.price_jpy)) : 0,
@@ -358,6 +360,7 @@ if (!product) {
 </dialog>
 
 <script define:vars={{ productId: product.id, isGateOpen, variants: product.variants, priceIdrEstimates: product.price_idr_estimates, userWa: user?.whatsapp_number ?? null, productImages: product.images, productNotes: product.notes }}>
+  function esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   let qty = 1;
   let selectedVariantId = variants[0]?.id ?? null;
   let waNumber = userWa; // pre-filled if already saved

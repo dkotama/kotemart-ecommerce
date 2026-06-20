@@ -18,7 +18,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev:astro',
+    command: 'E2E=1 npm run dev:astro',
     url: 'http://localhost:4321',
     reuseExistingServer: !process.env.CI,
     timeout: 60000,

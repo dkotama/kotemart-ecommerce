@@ -1184,6 +1184,8 @@ const productsWithIdr = products;
     if (window.innerWidth >= MOBILE_BREAKPOINT) return;
     const card = e.target.closest('[data-product-id]');
     if (!card) return;
+    // Ignore clicks inside the open bottom sheet (order button also carries data-product-id)
+    if (e.target.closest('#bottom-sheet')) return;
     e.preventDefault();
     const productId = card.dataset.productId;
     const product = productsWithIdr.find(p => p.id === productId);

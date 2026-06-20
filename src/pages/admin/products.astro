@@ -432,7 +432,7 @@ const fee = settings?.global_fee_pct ?? 5;
       chip.className = 'note-chip flex items-center gap-1.5 bg-[#F1F2F5] text-[#1A1D23] rounded-full px-2.5 py-1 text-[0.75rem] font-semibold m-0.5';
       chip.innerHTML = `${esc(note)}<button type="button" class="chip-remove text-[#5B606D] hover:text-[#D1453B] ml-1 leading-none" data-idx="${idx}">✕</button>`;
       chip.querySelector('.chip-remove')?.addEventListener('click', (e) => {
-        const i = parseInt((e.currentTarget as HTMLElement).dataset.idx!);
+        const i = parseInt(e.currentTarget.dataset.idx || '0');
         selectedNotes.splice(i, 1);
         renderNotes();
       });
@@ -443,7 +443,7 @@ const fee = settings?.global_fee_pct ?? 5;
 
   document.querySelectorAll('.template-note-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const val = (e.currentTarget as HTMLButtonElement).dataset.value;
+      const val = e.currentTarget.dataset.value;
       if (!val) return;
       if (selectedNotes.includes(val)) return;
       selectedNotes.push(val);
@@ -452,9 +452,9 @@ const fee = settings?.global_fee_pct ?? 5;
   });
 
   btnAddCustomNote?.addEventListener('click', () => {
-    const val = (customNoteInput as HTMLInputElement).value.trim();
+    const val = customNoteInput.value.trim();
     if (!val) return;
-    (customNoteInput as HTMLInputElement).value = '';
+    customNoteInput.value = '';
     if (selectedNotes.includes(val)) return;
     selectedNotes.push(val);
     renderNotes();

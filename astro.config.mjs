@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 // https://astro.build/config
 export default defineConfig({
+  devToolbar: { enabled: !process.env.E2E },
   output: 'server',
   adapter: cloudflare({
     platformProxy: {
