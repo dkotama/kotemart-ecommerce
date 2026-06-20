@@ -945,7 +945,7 @@ const productsWithIdr = products;
               <span class="inline-block bg-[#F1F2F5] text-[#5B606D] rounded-full px-2 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.1em] mb-2">${esc(product.category)}</span>
               <h2 class="text-[1.25rem] font-bold text-[#1A1D23] leading-tight mb-4">${esc(product.name)}</h2>
               <p class="text-[0.875rem] text-[#5B606D] font-semibold mb-2">Pilih Varian</p>
-              <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">${variantPills}</div>
+              <div class="flex flex-wrap gap-2 pb-2">${variantPills}</div>
               <div class="mt-3 p-3 bg-[#F9F9F7] rounded-[8px] border border-[#E8E9ED]">
                 <span id="sheet-price-jpy" class="font-mono text-[0.8125rem] text-[#5B606D] block">¥ ${firstVariant.price_jpy.toLocaleString('ja-JP')}</span>
                 <span id="sheet-price-idr" class="font-bold text-[1.125rem] text-[#1A8F89]">Est. Rp ${(firstVariant.price_idr_estimate ?? 0).toLocaleString('id-ID')}</span>
