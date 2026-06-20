@@ -1,0 +1,384 @@
+---
+import '../styles/global.css';
+import { env } from 'cloudflare:workers';
+import { getSettings } from '../lib/pricing';
+
+interface Props {
+  title: string;
+  user?: import('../lib/types').User | null;
+  showNav?: boolean;
+}
+
+const { title, user = null, showNav = true } = Astro.props;
+
+// Compute user initials for avatar
+const initials = user?.name
+  ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+  : 'US';
+
+let telegramLink = '';
+let orderCount = 0;
+try {
+  const db = (env as any).DB;
+  if (db) {
+    telegramLink = (await getSettings(db)).telegram_link;
+    if (user) {
+      const cnt = await db.prepare(
+        `SELECT COUNT(*) as c FROM orders WHERE user_id = ?1 AND status != 'Cancelled'`
+      ).bind(user.id).first<{ c: number }>();
+      orderCount = cnt?.c ?? 0;
+    }
+  }
+} catch {
+  // settings unavailable — footer hides telegram link
+}
+const footerYear = new Date().getFullYear();
+---
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="generator" content={Astro.generator} />
+  <title>{title} — Kotemart</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+</head>
+<body class="min-h-screen bg-[#F9F9F7] text-[#1A1D23] flex flex-col">
+
+  {showNav && (
+    <nav class="bg-[#FFFFFF] border-b border-[#E8E9ED] px-4 md:px-6 py-4 sticky top-0 z-20">
+      <div class="max-w-[1200px] mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-6">
+          <a href="/catalog" class="flex flex-col cursor-pointer no-underline">
+            <span class="text-[1.25rem] font-bold tracking-[-0.01em] leading-tight text-[#1A1D23]">Kotemart</span>
+          </a>
+        </div>
+
+        <div class="flex items-center gap-4">
+          <a
+            href="/my-orders"
+            data-testid="nav-pesanan"
+            class={`relative w-9 h-9 flex items-center justify-center rounded-full transition-colors no-underline ${
+              Astro.url.pathname === '/my-orders'
+                ? 'text-[#1A8F89] bg-[#E6F4F3]'
+                : 'text-[#5B606D] hover:text-[#1A8F89] hover:bg-[#F1F2F5]'
+            }`}
+            aria-label="Pesanan Saya"
+          >
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+            </svg>
+            <span
+              id="nav-order-count"
+              data-testid="nav-order-count"
+              class={orderCount > 0
+                ? 'absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[#1A8F89] text-white text-[0.625rem] font-bold leading-none'
+                : 'hidden'}
+            >{orderCount}</span>
+          </a>
+
+          <!-- User Dropdown -->
+          <div class="relative" id="user-menu-container">
+            <button
+              id="user-menu-btn"
+              class="w-8 h-8 rounded-full bg-[#1A8F89] flex items-center justify-center text-[#FFFFFF] text-[0.6875rem] font-bold focus:outline-none focus:ring-2 focus:ring-[#1A8F89] focus:ring-offset-2 transition-transform hover:scale-105"
+              aria-label="User menu"
+              aria-expanded="false"
+              aria-haspopup="true"
+            >
+              {user?.avatar_url ? (
+                <img src={user.avatar_url} alt={user.name} class="w-full h-full rounded-full object-cover" />
+              ) : (
+                <span>{initials}</span>
+              )}
+            </button>
+            <div
+              id="user-menu-dropdown"
+              class="hidden absolute right-0 mt-2 w-52 bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] shadow-[0_4px_16px_rgba(26,29,35,0.08)] py-1 z-30 overflow-hidden"
+            >
+              {user && (
+                <div class="px-4 py-3 border-b border-[#E8E9ED]">
+                  <p class="text-[0.8125rem] font-semibold text-[#1A1D23] truncate">{user.name}</p>
+                  <p class="text-[0.75rem] text-[#5B606D] truncate">{user.email}</p>
+                </div>
+              )}
+              {user?.role === 'admin' && (
+                <a
+                  href="/admin/orders"
+                  class="w-full text-left px-4 py-3 text-[0.8125rem] text-[#1A1D23] hover:bg-[#F1F2F5] transition-colors font-semibold flex items-center gap-2 no-underline"
+                >
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Admin Panel
+                </a>
+              )}
+              <form method="POST" action="/api/auth/logout" class="w-full">
+                <button
+                  type="submit"
+                  class="w-full text-left px-4 py-3 text-[0.8125rem] text-[#D1453B] hover:bg-[#FDF3E7] transition-colors font-semibold flex items-center gap-2"
+                >
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  Logout
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+  )}
+
+  <main class="flex-1">
+    <slot />
+  </main>
+
+    <!-- Site Footer -->
+    <footer class="bg-[#FFFFFF] border-t border-[#E8E9ED] mt-12">
+      <div class="max-w-[1200px] mx-auto px-4 md:px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-4">
+        <p class="text-[0.8125rem] text-[#A5A9B2]">
+          &copy; {footerYear} Kotemart Jastip
+        </p>
+        <div class="flex items-center gap-4">
+          {telegramLink && (
+            <a href={telegramLink} target="_blank" rel="noopener noreferrer" class="text-[0.75rem] text-[#5B606D] hover:text-[#1A8F89] no-underline transition-colors">Telegram</a>
+          )}
+          {telegramLink && (
+            <span class="text-[#D8DBDF] text-[0.75rem]">|</span>
+          )}
+          <a href="/privacy" class="text-[0.75rem] text-[#5B606D] hover:text-[#1A8F89] no-underline transition-colors">Kebijakan Privasi</a>
+          <span class="text-[#D8DBDF] text-[0.75rem]">|</span>
+          <a href="/terms" class="text-[0.75rem] text-[#5B606D] hover:text-[#1A8F89] no-underline transition-colors">Syarat &amp; Ketentuan</a>
+        </div>
+      </div>
+    </footer>
+
+  <!-- Scroll to top -->
+  <button id="scroll-to-top" class="fixed bottom-6 left-6 z-50 w-10 h-10 rounded-full bg-white border border-[#E8E9ED] shadow-[0_1px_3px_rgba(26,29,35,0.06),0_1px_2px_rgba(26,29,35,0.04)] flex items-center justify-center text-[#5B606D] hover:text-[#1A1D23] hover:border-[#5B606D] transition-all opacity-0 translate-y-2 pointer-events-none" aria-label="Scroll to top">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+  </button>
+
+  <!-- Toast Container -->
+  <div
+    id="toast-container"
+    class="fixed bottom-6 right-6 z-50 flex flex-col gap-3 pointer-events-none"
+    aria-live="polite"
+    aria-atomic="true"
+  ></div>
+
+  <!-- Auth Recovery Modal -->
+  <div
+    id="auth-recovery-modal"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center bg-[#1A1D23]/60 backdrop-blur-sm p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="auth-recovery-title"
+  >
+    <div class="bg-[#FFFFFF] rounded-[10px] shadow-[0_8px_32px_rgba(26,29,35,0.12),0_2px_8px_rgba(26,29,35,0.06)] p-8 w-full max-w-[400px]">
+      <div class="text-center mb-6">
+        <div class="text-4xl mb-3">⚠️</div>
+        <h2 id="auth-recovery-title" class="text-[1.25rem] font-semibold leading-[1.25] tracking-[-0.02em] text-[#1A1D23] mb-2">
+          Sesi kamu habis
+        </h2>
+        <p class="text-[0.9375rem] leading-[1.55] text-[#5B606D]">
+          Sambungkan ulang dengan Google untuk melanjutkan. Form kamu akan otomatis terisi kembali.
+        </p>
+      </div>
+      <button
+        id="auth-recovery-btn"
+        class="btn-primary-custom w-full"
+      >
+        <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="currentColor"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z" fill="currentColor"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l3.68-2.84z" fill="currentColor"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="currentColor"/>
+        </svg>
+        Reconnect with Google
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // ─── Scroll to top ──────────────────────────────────────────────────────
+    const scrollBtn = document.getElementById('scroll-to-top');
+    if (scrollBtn) {
+      let ticking = false;
+      window.addEventListener('scroll', () => {
+        if (!ticking) {
+          requestAnimationFrame(() => {
+            if (window.scrollY > 400) {
+              scrollBtn.classList.remove('opacity-0', 'translate-y-2', 'pointer-events-none');
+              scrollBtn.classList.add('opacity-100', 'translate-y-0');
+            } else {
+              scrollBtn.classList.add('opacity-0', 'translate-y-2', 'pointer-events-none');
+              scrollBtn.classList.remove('opacity-100', 'translate-y-0');
+            }
+            ticking = false;
+          });
+          ticking = true;
+        }
+      });
+      scrollBtn.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    }
+
+    // ─── User menu toggle ───────────────────────────────────────────────────
+    const menuBtn = document.getElementById('user-menu-btn');
+    const menuDropdown = document.getElementById('user-menu-dropdown');
+    const menuContainer = document.getElementById('user-menu-container');
+
+    if (menuBtn && menuDropdown) {
+      menuBtn.addEventListener('click', () => {
+        const isHidden = menuDropdown.classList.contains('hidden');
+        menuDropdown.classList.toggle('hidden', !isHidden);
+        menuBtn.setAttribute('aria-expanded', String(isHidden));
+      });
+
+      document.addEventListener('mousedown', (e) => {
+        if (menuContainer && !menuContainer.contains(e.target as Node)) {
+          menuDropdown.classList.add('hidden');
+          menuBtn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
+    // ─── Toast system ────────────────────────────────────────────────────────
+    type ToastType = 'success' | 'error' | 'info';
+
+    function showToast(message: string, type: ToastType = 'info', duration = 4000) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+
+      const colors: Record<ToastType, string> = {
+        success: 'bg-[#D9EDE2] border-[#2E8B57] text-[#1E6B3F]',
+        error:   'bg-[#FDEDEC] border-[#D1453B] text-[#A6312A]',
+        info:    'bg-[#FFFFFF] border-[#E8E9ED] text-[#1A1D23]',
+      };
+
+      const icons: Record<ToastType, string> = {
+        success: '<svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+        error:   '<svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+        info:    '<svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+      };
+
+      const toast = document.createElement('div');
+      toast.setAttribute('data-testid', `toast-${type}`);
+      toast.className = `toast-slide-in pointer-events-auto max-w-[340px] flex items-center gap-3 px-4 py-3 border rounded-[6px] shadow-[0_4px_16px_rgba(26,29,35,0.08)] text-[0.8125rem] font-semibold leading-[1.4] ${colors[type]}`;
+      toast.innerHTML = `${icons[type]}<span class="flex-1">${message}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        toast.style.transition = 'opacity 200ms, transform 200ms';
+        setTimeout(() => toast.remove(), 200);
+      }, duration);
+    }
+
+    // Expose globally
+    (window as any).showToast = showToast;
+
+    // ─── Global apiClient with 401 interception ──────────────────────────────
+    async function apiClient(url: string, options: RequestInit = {}): Promise<Response> {
+      // Serialize form data before request
+      const formSnapshot: Record<string, string> = {};
+      document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+        'form input, form textarea, form select'
+      ).forEach(el => {
+        if (el.name) formSnapshot[el.name] = el.value;
+      });
+      if (Object.keys(formSnapshot).length > 0) {
+        sessionStorage.setItem('__kotemart_form_snapshot', JSON.stringify(formSnapshot));
+      }
+
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+      });
+
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent('show-auth-recovery'));
+      }
+
+      return response;
+    }
+
+    (window as any).apiClient = apiClient;
+
+    // ─── Nav order badge refresh ─────────────────────────────────────────────
+    async function refreshOrderBadge() {
+      const badge = document.getElementById('nav-order-count');
+      if (!badge) return;
+      try {
+        const res = await fetch('/api/orders/mine');
+        if (!res.ok) return;
+        const orders = await res.json() as { status?: string }[];
+        const count = orders.filter(o => o.status && o.status !== 'Cancelled').length;
+        badge.textContent = String(count);
+        badge.classList.toggle('hidden', count === 0);
+      } catch {
+        // ignore — badge keeps last known value
+      }
+    }
+    (window as any).refreshOrderBadge = refreshOrderBadge;
+
+    // ─── Auth Recovery Modal ─────────────────────────────────────────────────
+    const authModal = document.getElementById('auth-recovery-modal');
+    const authBtn = document.getElementById('auth-recovery-btn');
+
+    window.addEventListener('show-auth-recovery', () => {
+      authModal?.classList.remove('hidden');
+    });
+
+    authBtn?.addEventListener('click', () => {
+      const popup = window.open(
+        '/api/auth/login',
+        'auth_popup',
+        'width=500,height=600,scrollbars=yes,resizable=yes'
+      );
+
+      window.addEventListener('message', function onMessage(e) {
+        if (e.data === 'auth_complete') {
+          window.removeEventListener('message', onMessage);
+          authModal?.classList.add('hidden');
+
+          // Restore form data from snapshot
+          const snapshotStr = sessionStorage.getItem('__kotemart_form_snapshot');
+          if (snapshotStr) {
+            try {
+              const snapshot = JSON.parse(snapshotStr) as Record<string, string>;
+              Object.entries(snapshot).forEach(([name, value]) => {
+                const el = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+                  `form [name="${name}"]`
+                );
+                if (el) el.value = value;
+              });
+              sessionStorage.removeItem('__kotemart_form_snapshot');
+            } catch {
+              // ignore parse errors
+            }
+          }
+
+          popup?.close();
+        }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1272 @@
+---
+export const prerender = false;
+
+import Layout from '../../layouts/Layout.astro';
+import type { Settings, Product, ProductVariant } from '../../lib/types';
+import { env } from 'cloudflare:workers';
+import { getSettings } from '../../lib/pricing';
+
+const user = Astro.locals.user;
+
+// Fetch gate status and products from D1 via runtime env
+let settings: Settings = {
+  gate_status: 'Open',
+  jpy_to_idr_rate: 105,
+  global_fee_pct: 10,
+  telegram_link: 'https://t.me/kotemart',
+};
+let products: (Product & { min_price_idr_estimate: number; max_price_idr_estimate: number })[] = [];
+let masterTags: { id: string; name: string }[] = [];
+
+try {
+  const db = (env as any).DB;
+  if (db) {
+    const [settingsRow, productsRows, tagsResult] = await Promise.all([
+      getSettings(db),
+      db.prepare(
+        `SELECT id, name, category, description, images, is_deleted, created_at, updated_at
+         FROM products WHERE is_deleted = 0 ORDER BY created_at DESC`
+      ).all<Omit<Product, 'variants' | 'min_price_jpy' | 'max_price_jpy'> & { images: string }>(),
+      db.prepare(`SELECT * FROM tags ORDER BY name ASC`).all<{ id: string; name: string }>(),
+    ]);
+
+    if (settingsRow) settings = settingsRow;
+    if (tagsResult?.results) masterTags = tagsResult.results;
+
+    if (productsRows?.results) {
+      const productList = productsRows.results.map(p => ({
+        ...p,
+        images: (() => { try { return JSON.parse(p.images as unknown as string); } catch { return []; } })(),
+      }));
+
+      const withVariants = await Promise.all(productList.map(async (p) => {
+        const [varResult, tagResult] = await Promise.all([
+          db.prepare(
+            `SELECT id, variant_name, price_jpy, price_idr_estimate, product_url, sort_order, images FROM product_variants WHERE product_id = ?1 AND is_deleted = 0 ORDER BY sort_order ASC`
+          ).bind(p.id).all<Record<string, unknown>>(),
+          db.prepare(
+            `SELECT t.id, t.name FROM tags t
+             JOIN product_tags pt ON pt.tag_id = t.id
+             WHERE pt.product_id = ?1`
+          ).bind(p.id).all<{ id: string; name: string }>()
+        ]);
+        const rawVariants = varResult?.results ?? [];
+        const variants: ProductVariant[] = rawVariants.map(v => ({
+          ...v,
+          images: (() => { try { return JSON.parse(v.images as unknown as string); } catch { return []; } })(),
+        })) as unknown as ProductVariant[];
+        const tags = tagResult?.results ?? [];
+
+        const idrEstimates = variants.map(v => v.price_idr_estimate ?? 0);
+        const min_price_idr_estimate = idrEstimates.length ? Math.min(...idrEstimates) : 0;
+        const max_price_idr_estimate = idrEstimates.length ? Math.max(...idrEstimates) : 0;
+        const prices = variants.map(v => v.price_jpy as number);
+        const min_price_jpy = prices.length ? Math.min(...prices) : 0;
+        const max_price_jpy = prices.length ? Math.max(...prices) : 0;
+        return {
+          ...p,
+          variants,
+          tags,
+          min_price_jpy,
+          max_price_jpy,
+          min_price_idr_estimate,
+          max_price_idr_estimate,
+        };
+      }));
+
+      products = withVariants;
+    }
+  }
+} catch (err) {
+  console.error('Catalog fetch error:', err);
+}
+
+const isGateOpen = settings.gate_status === 'Open';
+
+const categories = ['Semua', ...settings.product_categories];
+
+const productsWithIdr = products;
+---
+
+<Layout title="Katalog Produk" user={user}>
+  <!-- Gate Closed Banner -->
+  {!isGateOpen && (
+    <div data-testid="gate-banner" class="w-full bg-[#FDF3E7] border-l-[4px] border-l-[#D1453B] py-[12px] px-4 md:px-6 shadow-sm">
+      <div class="max-w-[1200px] mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <svg class="w-5 h-5 text-[#D1453B] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div>
+            <p class="text-[0.9375rem] font-semibold text-[#8B5E0A] leading-tight">Jastip sedang tutup</p>
+            <p class="text-[0.8125rem] text-[#8B5E0A] opacity-80 mt-0.5">Kami tidak menerima pesanan baru saat ini. Silakan hubungi admin untuk info batch selanjutnya.</p>
+          </div>
+        </div>
+        <a
+          href={settings.telegram_link || '#'}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="whitespace-nowrap shrink-0 h-[44px] px-[12px] bg-[#FFFFFF] border border-[#E8E9ED] hover:bg-[#F1F2F5] text-[#1A1D23] rounded-[6px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em] transition-all focus:ring-2 focus:ring-[#1A8F89] focus:ring-offset-2 focus:ring-offset-[#FDF3E7] flex items-center gap-2 no-underline"
+        >
+          Hubungi Admin via Telegram
+        </a>
+      </div>
+    </div>
+  )}
+
+  <!-- Main Content -->
+  <main class="max-w-[1200px] mx-auto px-4 md:px-6 pt-[40px] pb-20">
+
+    <!-- Page Header -->
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-[40px]">
+      <div>
+        <h1 class="text-[2.5rem] font-bold leading-[1.15] tracking-[-0.03em] text-[#1A1D23]">
+          Katalog Produk
+        </h1>
+        <p class="text-[1.125rem] leading-[1.6] text-[#5B606D] mt-2 max-w-2xl">
+          Daftar produk estimasi untuk batch saat ini.
+        </p>
+      </div>
+    </div>
+
+    <!-- Custom Order Banner -->
+    {isGateOpen && (
+      <a
+        href="/custom-order"
+        data-testid="custom-order-banner"
+        class="block w-full mb-6 px-4 md:px-5 py-[10px] bg-[#F9F9F7] border border-[#E8E9ED] border-l-[3px] border-l-[#1A8F89] rounded-[6px] hover:bg-[#F1F2F5] transition-colors group no-underline"
+      >
+        <div class="flex items-center gap-3">
+          <!-- Marketplace icons (greyscale, subtle) -->
+          <div class="hidden sm:flex items-center gap-1 shrink-0 opacity-40">
+            <svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="#5B606D" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="3"/><path d="M2 7h20M7 2v5M17 2v5M2 17h20M7 17v5M17 17v5"/></svg>
+            <svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="#5B606D" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="#5B606D" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4zM3 6h18"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+          </div>
+
+          <span class="text-[0.8125rem] text-[#5B606D] leading-tight">
+            Tidak menemukan barang yang kamu cari?
+            <span class="text-[#1A8F89] font-semibold ml-1 group-hover:underline">Request Custom Order →</span>
+          </span>
+        </div>
+      </a>
+    )}
+
+    <!-- Tools & Categories Bar -->
+    <div id="filter-bar" class="mb-6">
+      <!-- Collapse toggle -->
+      <button
+        type="button"
+        id="filter-toggle-btn"
+        data-testid="filter-toggle-btn"
+        class="w-full md:hidden h-[36px] px-3 bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] font-semibold text-[#1A1D23] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] transition-shadow cursor-pointer flex items-center justify-between gap-2 mb-2"
+        aria-expanded="false"
+      >
+        <span class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-[#5B606D]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+          <span id="filter-summary-label">Filter & Urutkan</span>
+        </span>
+        <svg id="filter-toggle-chevron" class="w-4 h-4 text-[#5B606D] transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+      </button>
+
+      <div id="filter-controls" class="hidden md:flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
+
+      <!-- Categories Filter (multi-select dropdown) -->
+      <div class="relative w-full sm:w-auto shrink-0" id="category-filter-container">
+        <button
+          type="button"
+          id="category-dropdown-btn"
+          data-testid="category-dropdown-btn"
+          aria-haspopup="true"
+          aria-expanded="false"
+          class="w-full sm:w-auto h-[36px] px-3 bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] font-semibold text-[#1A1D23] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] focus:border-[#1A8F89] transition-shadow cursor-pointer flex items-center justify-between gap-2"
+        >
+          <span class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-[#5B606D]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+            <span id="category-dropdown-label">Semua Kategori</span>
+          </span>
+          <svg id="category-dropdown-chevron" class="w-4 h-4 text-[#5B606D] transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div
+          id="category-dropdown-panel"
+          class="hidden absolute left-0 top-[calc(100%+6px)] z-30 min-w-full w-max max-h-[320px] overflow-y-auto bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] shadow-[0_4px_16px_rgba(26,29,35,0.08)] py-1"
+        >
+          {categories.map((cat) => (
+            <label
+              data-testid={`filter-pill-${cat}`}
+              data-category={cat}
+              class="category-option flex items-center gap-3 px-4 py-2.5 text-[0.8125rem] font-medium text-[#1A1D23] hover:bg-[#F1F2F5] cursor-pointer select-none whitespace-nowrap"
+            >
+              <span class={`category-check w-[18px] h-[18px] rounded-[4px] border flex items-center justify-center shrink-0 ${cat === 'Semua' ? 'bg-[#1A1D23] border-[#1A1D23]' : 'border-[#E8E9ED]'}`}>
+                <svg class={`w-3 h-3 text-white ${cat === 'Semua' ? '' : 'hidden'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              </span>
+              <span>{cat}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <!-- Tags Filter (multi-select dropdown) -->
+      <div class="relative w-full sm:w-auto shrink-0" id="tag-filter-container">
+        <button
+          type="button"
+          id="tag-dropdown-btn"
+          data-testid="tag-dropdown-btn"
+          aria-haspopup="true"
+          aria-expanded="false"
+          class="w-full sm:w-auto h-[36px] px-3 bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] font-semibold text-[#1A1D23] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] focus:border-[#1A8F89] transition-shadow cursor-pointer flex items-center justify-between gap-2"
+        >
+          <span class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-[#5B606D]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <span id="tag-dropdown-label">Semua Tag</span>
+          </span>
+          <svg id="tag-dropdown-chevron" class="w-4 h-4 text-[#5B606D] transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div
+          id="tag-dropdown-panel"
+          class="hidden absolute left-0 top-[calc(100%+6px)] z-30 min-w-full w-max max-h-[320px] overflow-y-auto bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] shadow-[0_4px_16px_rgba(26,29,35,0.08)] py-1"
+        >
+          <label
+            data-testid="filter-tag-Semua"
+            data-tag="Semua"
+            class="tag-option flex items-center gap-3 px-4 py-2.5 text-[0.8125rem] font-medium text-[#1A1D23] hover:bg-[#F1F2F5] cursor-pointer select-none whitespace-nowrap"
+          >
+            <span class="tag-check w-[18px] h-[18px] rounded-[4px] border flex items-center justify-center shrink-0 bg-[#1A1D23] border-[#1A1D23]">
+              <svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            </span>
+            <span>Semua</span>
+          </label>
+          {masterTags.map((tag) => (
+            <label
+              data-testid={`filter-tag-${tag.name}`}
+              data-tag={tag.name}
+              class="tag-option flex items-center gap-3 px-4 py-2.5 text-[0.8125rem] font-medium text-[#1A1D23] hover:bg-[#F1F2F5] cursor-pointer select-none whitespace-nowrap"
+            >
+              <span class="tag-check w-[18px] h-[18px] rounded-[4px] border flex items-center justify-center shrink-0 border-[#E8E9ED]">
+                <svg class="w-3 h-3 text-white hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              </span>
+              <span>#{tag.name}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <!-- Search, Sort, View Toggle -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+        <!-- Search Input -->
+        <div class="relative flex-grow sm:w-64">
+          <svg class="w-4 h-4 text-[#5B606D] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            id="search-input"
+            data-testid="search-input"
+            placeholder="Cari produk..."
+            class="w-full h-[36px] pl-9 pr-3 bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] text-[#1A1D23] placeholder-[#5B606D] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] focus:border-[#1A8F89] transition-shadow"
+          />
+        </div>
+
+        <div class="flex items-center gap-3 justify-between sm:justify-start">
+          <!-- Sort Dropdown -->
+          <div class="relative shrink-0">
+            <select
+              id="sort-select"
+              class="h-[36px] appearance-none pl-3 pr-8 bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] font-semibold text-[#1A1D23] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] focus:border-[#1A8F89] transition-shadow cursor-pointer"
+            >
+              <option value="default">Terbaru</option>
+              <option value="price_asc">Harga: Rendah ke Tinggi</option>
+              <option value="price_desc">Harga: Tinggi ke Rendah</option>
+              <option value="name_asc">Nama: A - Z</option>
+            </select>
+            <svg class="w-4 h-4 text-[#5B606D] absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+
+          <!-- View Mode Toggle -->
+          <div class="flex bg-[#E8E9ED] rounded-[6px] p-0.5 shrink-0">
+            <button
+              id="view-grid-btn"
+              class="w-8 h-8 flex items-center justify-center rounded-[4px] transition-all bg-[#FFFFFF] text-[#1A1D23] shadow-sm"
+              aria-label="Grid View"
+            >
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4 4h6v6H4zm10 0h6v6h-6zM4 14h6v6H4zm10 0h6v6h-6z"/></svg>
+            </button>
+            <button
+              id="view-list-btn"
+              class="w-8 h-8 flex items-center justify-center rounded-[4px] transition-all text-[#5B606D] hover:text-[#1A1D23]"
+              aria-label="List View"
+            >
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <!-- Product Grid -->
+    <div id="product-grid" class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-[12px] sm:gap-[24px]">
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="hidden py-[64px] text-center border border-[#E8E9ED] border-dashed rounded-[10px] bg-[#FFFFFF] mt-8">
+      <svg class="w-12 h-12 text-[#5B606D] opacity-30 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+      </svg>
+      <p class="text-[1.125rem] text-[#5B606D]">Belum ada produk di kategori ini.</p>
+      <p class="text-[0.8125rem] text-[#5B606D] opacity-70 mt-2">Coba ubah filter atau kata kunci pencarian.</p>
+    </div>
+
+    <!-- Bottom Custom Order Banner -->
+    <div id="bottom-banner" class="mt-8">
+      {isGateOpen && (
+        <a
+          href="/custom-order"
+          data-testid="custom-order-banner-bottom"
+          class="block w-full px-4 md:px-5 py-[10px] bg-[#F9F9F7] border border-[#E8E9ED] border-l-[3px] border-l-[#1A8F89] rounded-[6px] hover:bg-[#F1F2F5] transition-colors group no-underline"
+        >
+          <div class="flex items-center gap-3">
+            <div class="hidden sm:flex items-center gap-1 shrink-0 opacity-40">
+              <svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="#5B606D" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="3"/><path d="M2 7h20M7 2v5M17 2v5M2 17h20M7 17v5M17 17v5"/></svg>
+              <svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="#5B606D" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              <svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="#5B606D" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4zM3 6h18"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+            </div>
+            <span class="text-[0.8125rem] text-[#5B606D] leading-tight">
+              Tidak menemukan barang yang kamu cari?
+              <span class="text-[#1A8F89] font-semibold ml-1 group-hover:underline">Request Custom Order →</span>
+            </span>
+          </div>
+        </a>
+      )}
+    </div>
+
+  </main>
+
+  <!-- WhatsApp Gate Dialog -->
+  <dialog id="wa-dialog" class="modal">
+    <div class="modal-box bg-[#FFFFFF] border border-[#E8E9ED] shadow-lg rounded-[12px] max-w-[400px]">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-full bg-[#E7F8EE] flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5 text-[#25D366]" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="font-bold text-[1rem] text-[#1A1D23]">Nomor WhatsApp</h3>
+          <p class="text-[0.75rem] text-[#5B606D]">Diperlukan agar admin bisa menghubungi kamu</p>
+        </div>
+      </div>
+      <form id="wa-form" class="flex flex-col gap-3">
+        <div class="flex flex-col gap-1">
+          <label for="wa-input" class="text-[0.8125rem] font-semibold text-[#1A1D23]">Nomor WhatsApp <span class="text-[#D1453B]">*</span></label>
+          <input
+            type="tel"
+            id="wa-input"
+            autocomplete="tel"
+            class="w-full h-[42px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.9375rem] focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+            placeholder="Contoh: 628123456789"
+          />
+          <p class="text-[0.75rem] text-[#5B606D]">Format internasional, contoh: 628123456789 (tanpa spasi atau strip)</p>
+          <p id="wa-error" class="text-[0.75rem] text-[#D1453B] hidden"></p>
+        </div>
+        <div class="flex gap-2 justify-end pt-1">
+          <button type="button" class="h-[38px] px-4 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] font-semibold text-[#5B606D] hover:bg-[#F1F2F5] transition-colors" onclick="document.getElementById('wa-dialog').close()">
+            Batal
+          </button>
+          <button type="submit" class="h-[38px] px-4 bg-[#25D366] hover:bg-[#1DA851] text-white rounded-[6px] text-[0.8125rem] font-semibold transition-colors">
+            Simpan &amp; Lanjutkan
+          </button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Order Confirmation Dialog -->
+  <dialog id="confirm-order-dialog" class="modal">
+    <div class="modal-box bg-[#FFFFFF] border border-[#E8E9ED] shadow-lg rounded-[12px] max-w-[420px]">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="w-10 h-10 rounded-full bg-[#D5EDEB] flex items-center justify-center shrink-0 mt-0.5">
+          <svg class="w-5 h-5 text-[#0F726E]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+          </svg>
+        </div>
+        <div>
+          <h3 class="font-bold text-[1rem] text-[#1A1D23]">Konfirmasi Pesanan</h3>
+          <p class="text-[0.8125rem] text-[#5B606D] mt-1 leading-[1.5]">
+            Pesananmu akan dikirim ke admin untuk dikonfirmasi. Kamu <strong>bisa membatalkan</strong> pesanan selama belum dikonfirmasi.
+          </p>
+        </div>
+      </div>
+      <div class="bg-[#F9F9F7] border border-[#E8E9ED] rounded-[8px] p-3 mb-4 text-[0.8125rem] text-[#5B606D] leading-[1.6]">
+        <ul class="flex flex-col gap-1.5">
+          <li class="flex items-start gap-2">
+            <svg class="w-4 h-4 text-[#1A8F89] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+            Status awal pesananmu: <span class="font-semibold text-[#1A1D23]">Draft</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <svg class="w-4 h-4 text-[#1A8F89] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+            Admin akan mengkonfirmasi dan mengubah ke <span class="font-semibold text-[#1A1D23]">Pending</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <svg class="w-4 h-4 text-[#D4890B] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Harga estimasi bisa berubah — harga final dikonfirmasi admin setelah barang dibeli
+          </li>
+          <li class="flex items-start gap-2">
+            <svg class="w-4 h-4 text-[#D1453B] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            Pembatalan <span class="font-semibold">tidak bisa dilakukan</span> setelah status <span class="font-semibold">Pending</span>
+          </li>
+        </ul>
+      </div>
+      <div id="confirm-notes-section" class="hidden bg-[#FDF3E7] border border-[#E8E9ED] rounded-[8px] p-3 mb-4 text-[0.8125rem] text-[#5B606D] leading-[1.6]">
+        <p class="font-semibold text-[#8B5E0A] mb-1.5 flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-[#D4890B] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          Ketentuan/Catatan Produk:
+        </p>
+        <ul id="confirm-notes-list" class="flex flex-col gap-1.5 pl-5 list-disc text-[#8B5E0A]/90">
+        </ul>
+      </div>
+      <div class="flex gap-2 justify-end">
+        <button id="cancel-order-btn" type="button" class="h-[40px] px-4 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] font-semibold text-[#5B606D] hover:bg-[#F1F2F5] transition-colors">
+          Batalkan
+        </button>
+        <button id="confirm-order-btn" type="button" class="h-[40px] px-5 bg-[#0F726E] hover:bg-[#0A5D59] text-white rounded-[6px] text-[0.8125rem] font-semibold transition-colors flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          Ya, Tambah Pesanan
+        </button>
+      </div>
+    </div>
+  </dialog>
+</Layout>
+
+<script define:vars={{ productsWithIdr, isGateOpen, masterTags, userWa: user?.whatsapp_number ?? null }}>
+  // Restore scroll position on back-navigation
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  const savedScrollY = sessionStorage.getItem('catalog-scroll-y');
+  const savedCategory = sessionStorage.getItem('catalog-category');
+  const savedSort = sessionStorage.getItem('catalog-sort');
+  const savedViewMode = sessionStorage.getItem('catalog-view');
+
+  // All products from server
+  let allProducts = productsWithIdr;
+  let selectedCategories = new Set(); // empty = "Semua" (all)
+  let selectedTags = new Set();
+  let searchQuery = '';
+  let sortBy = savedSort || 'default';
+  let viewMode = savedViewMode || 'grid';
+  let waNumber = userWa;
+  let pendingOrderData = null;
+  let activeProductNotes = [];
+
+  const waDialog = document.getElementById('wa-dialog');
+  const waInput = document.getElementById('wa-input');
+  const waForm = document.getElementById('wa-form');
+  const waError = document.getElementById('wa-error');
+
+  const confirmDialog = document.getElementById('confirm-order-dialog');
+  const confirmBtn = document.getElementById('confirm-order-btn');
+  const cancelConfirmBtn = document.getElementById('cancel-order-btn');
+
+  function showConfirmDialog() {
+    const notesSection = document.getElementById('confirm-notes-section');
+    const notesList = document.getElementById('confirm-notes-list');
+    if (notesSection && notesList) {
+      if (activeProductNotes && activeProductNotes.length > 0) {
+        notesList.innerHTML = activeProductNotes.map(note => `<li>${esc(note)}</li>`).join('');
+        notesSection.classList.remove('hidden');
+      } else {
+        notesSection.classList.add('hidden');
+      }
+    }
+    confirmDialog?.showModal();
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function getFilteredProducts() {
+    let result = selectedCategories.size === 0
+      ? allProducts
+      : allProducts.filter(p => selectedCategories.has(p.category));
+
+    if (selectedTags.size > 0) {
+      result = result.filter(p => (p.tags || []).some(t => selectedTags.has(t.name)));
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(p => p.name.toLowerCase().includes(q) || (p.tags || []).some(t => t.name.toLowerCase().includes(q)));
+    }
+
+    const sorted = [...result];
+    switch (sortBy) {
+      case 'price_asc': sorted.sort((a, b) => a.min_price_idr_estimate - b.min_price_idr_estimate); break;
+      case 'price_desc': sorted.sort((a, b) => b.min_price_idr_estimate - a.min_price_idr_estimate); break;
+      case 'name_asc': sorted.sort((a, b) => a.name.localeCompare(b.name)); break;
+      default: break;
+    }
+    return sorted;
+  }
+
+  function formatPriceRange(min, max, prefix, locale) {
+    if (min === max) return `${prefix}${min.toLocaleString(locale)}`;
+    return `${prefix}${min.toLocaleString(locale)} – ${prefix}${max.toLocaleString(locale)}`;
+  }
+
+  function renderCard(product, mode) {
+    const imgSrc = Array.isArray(product.images) && product.images.length > 0
+      ? product.images[0]
+      : 'https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=800';
+
+    const jpyLabel = formatPriceRange(product.min_price_jpy, product.max_price_jpy, '¥ ', 'ja-JP');
+    const idrLabel = 'Est. ' + formatPriceRange(product.min_price_idr_estimate, product.max_price_idr_estimate, 'Rp ', 'id-ID');
+
+    const tagBadges = (product.tags || []).slice(0, 3).map(t => `
+      <span class="inline-block bg-[#F1F2F5] text-[#5B606D] rounded-[4px] px-1.5 py-0.5 text-[0.625rem] font-medium mr-1 mb-1">#${esc(t.name)}</span>
+    `).join('');
+    const tagOverflow = (product.tags || []).length > 3 ? `<span class="text-[0.625rem] text-[#5B606D] font-medium">+${product.tags.length - 3}</span>` : '';
+    const tagsContainerHtml = tagBadges ? `<div class="flex flex-wrap items-center mt-1.5 select-none">${tagBadges}${tagOverflow}</div>` : '';
+
+    if (mode === 'list') {
+      return `
+        <a href="/catalog/${product.id}" data-testid="product-card" data-product-id="${product.id}"
+           class="bg-[#FFFFFF] rounded-[10px] overflow-hidden group transition-shadow duration-150 ease-out hover:shadow-[0_4px_12px_rgba(26,29,35,0.08),0_2px_4px_rgba(26,29,35,0.04)] shadow-[0_1px_3px_rgba(26,29,35,0.06),0_1px_2px_rgba(26,29,35,0.04)] focus-within:ring-2 focus-within:ring-[#1A8F89] focus-within:ring-offset-2 flex flex-row items-stretch h-[96px] sm:h-[116px] no-underline" tabindex="0">
+          <div class="relative bg-white overflow-hidden shrink-0 w-[96px] sm:w-[140px] border-r border-[#E8E9ED]">
+            <img src="${esc(imgSrc)}" alt="${esc(product.name)}" class="w-full h-full object-contain p-2 absolute inset-0" loading="lazy" />
+            <div data-testid="category-badge" class="absolute top-[8px] left-[8px] hidden sm:block bg-[#F1F2F5] text-[#5B606D] rounded-full px-[8px] py-[4px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em] shadow-sm">
+              ${esc(product.category)}
+            </div>
+          </div>
+          <div class="flex flex-col flex-grow justify-center overflow-hidden px-[12px] sm:px-[16px] py-[8px]">
+            <h3 data-testid="product-name" class="font-semibold leading-[1.3] tracking-[-0.01em] text-[#1A1D23] text-[0.9375rem] sm:text-[1.125rem] mb-[4px] line-clamp-1">${esc(product.name)}</h3>
+            ${tagsContainerHtml}
+            <div class="flex flex-col sm:flex-row sm:items-center gap-0 sm:gap-3 mt-1">
+              <span data-testid="product-price-jpy" class="font-mono leading-[1.6] text-[#5B606D] text-[0.75rem] sm:text-[0.8125rem]">${jpyLabel}</span>
+              <span data-testid="product-price-idr" class="font-bold leading-[1.3] tracking-[-0.01em] text-[#1A8F89] text-[0.875rem] sm:text-[0.9375rem]">${idrLabel}</span>
+            </div>
+          </div>
+          ${isGateOpen ? `
+          <div class="px-[12px] sm:px-[16px] flex items-center justify-center border-l border-[#E8E9ED] bg-[#F9F9F7] sm:bg-transparent shrink-0 w-[80px] sm:w-[120px]">
+            <span data-testid="btn-pesan" class="w-full h-[32px] sm:h-[36px] px-[8px] bg-[#0F726E] hover:bg-[#0A5D59] text-[#FFFFFF] rounded-[6px] text-[0.625rem] sm:text-[0.6875rem] font-semibold uppercase tracking-[0.1em] transition-all flex items-center justify-center">Pesan</span>
+          </div>` : ''}
+        </a>`;
+    }
+
+    return `
+      <a href="/catalog/${product.id}" data-testid="product-card" data-product-id="${product.id}"
+         class="card-product group cursor-pointer focus-within:ring-2 focus-within:ring-[#1A8F89] focus-within:ring-offset-2 flex flex-col no-underline" tabindex="0">
+        <div class="relative bg-white overflow-hidden w-full aspect-square border-b border-[#E8E9ED]">
+          <img src="${esc(imgSrc)}" alt="${esc(product.name)}" class="w-full h-full object-contain p-2 sm:p-4 rounded-t-[4px]" loading="lazy" />
+          <div data-testid="category-badge" class="absolute top-[6px] left-[6px] sm:top-[8px] sm:left-[8px] bg-[#F1F2F5] text-[#5B606D] rounded-full px-[8px] py-[4px] text-[0.625rem] sm:text-[0.6875rem] font-semibold uppercase tracking-[0.1em] shadow-sm">
+            ${esc(product.category)}
+          </div>
+        </div>
+        <div class="flex flex-col flex-grow p-[12px] sm:p-[16px]">
+          <h3 data-testid="product-name" class="font-semibold leading-[1.3] tracking-[-0.01em] text-[#1A1D23] text-[1rem] sm:text-[1.25rem] mb-[4px] sm:mb-[8px] line-clamp-2 h-[2.6em]">${esc(product.name)}</h3>
+          ${tagsContainerHtml}
+          <div class="flex flex-col gap-1 mt-[8px] sm:mt-[16px]">
+            <span data-testid="product-price-jpy" class="font-mono leading-[1.6] text-[#5B606D] text-[0.75rem] sm:text-[0.8125rem]">${jpyLabel}</span>
+            <span data-testid="product-price-idr" class="font-bold leading-[1.3] tracking-[-0.01em] text-[#1A8F89] text-[0.875rem] sm:text-[0.9375rem]">${idrLabel}</span>
+          </div>
+          <p class="text-[0.75rem] sm:text-[0.8125rem] leading-[1.5] text-[#5B606D] mt-auto pt-[8px] sm:pt-[12px] mt-[16px] sm:mt-[24px] border-t border-[#E8E9ED]">Harga estimasi. Final konfirmasi setelah beli.</p>
+          <div class="pt-[8px] sm:pt-[12px]">
+            <button data-testid="btn-pesan" ${!isGateOpen ? 'disabled' : ''}
+              class="w-full h-[36px] sm:h-[40px] px-[12px] rounded-[6px] text-[0.625rem] sm:text-[0.6875rem] font-semibold uppercase tracking-[0.1em] transition-all flex items-center justify-center ${isGateOpen ? 'bg-[#0F726E] hover:bg-[#0A5D59] text-[#FFFFFF]' : 'bg-[#F1F2F5] text-[#5B606D] cursor-not-allowed'}">
+              ${isGateOpen ? 'Pesan' : 'Jastip Tutup'}
+            </button>
+          </div>
+        </div>
+      </a>`;
+  }
+
+  function render() {
+    const grid = document.getElementById('product-grid');
+    const emptyState = document.getElementById('empty-state');
+    if (!grid || !emptyState) return;
+
+    const filtered = getFilteredProducts();
+
+    // Show/hide bottom banner
+    const bottomBanner = document.getElementById('bottom-banner');
+    if (bottomBanner) {
+      bottomBanner.style.display = filtered.length === 0 ? 'none' : '';
+    }
+
+    if (filtered.length === 0) {
+      grid.innerHTML = '';
+      emptyState.classList.remove('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+
+    if (viewMode === 'list') {
+      grid.className = 'flex flex-col gap-[12px]';
+    } else {
+      grid.className = 'grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-[12px] sm:gap-[24px]';
+    }
+
+    grid.innerHTML = filtered.map(p => renderCard(p, viewMode)).join('');
+  }
+
+  // Filter bar collapse toggle
+  const filterToggleBtn = document.getElementById('filter-toggle-btn');
+  const filterControls = document.getElementById('filter-controls');
+  const filterSummaryLabel = document.getElementById('filter-summary-label');
+  const filterToggleChevron = document.getElementById('filter-toggle-chevron');
+
+  function updateFilterSummary() {
+    if (!filterSummaryLabel) return;
+    const parts = [];
+    parts.push(selectedCategories.size === 0 ? 'Semua' : [...selectedCategories].join(', '));
+    if (selectedTags.size > 0) parts.push([...selectedTags].map(t => '#' + t).join(', '));
+    if (searchQuery.trim()) parts.push(`"${searchQuery.trim()}"`);
+    if (sortBy !== 'default') {
+      const labels = { price_asc: 'Termurah', price_desc: 'Termahal', name_asc: 'A-Z' };
+      parts.push(labels[sortBy] || sortBy);
+    }
+    filterSummaryLabel.textContent = parts.length ? 'Filter: ' + parts.join(' · ') : 'Filter & Urutkan';
+  }
+
+  filterToggleBtn?.addEventListener('click', () => {
+    if (window.innerWidth >= 768) return; // desktop — never collapse
+    const isOpen = !filterControls?.classList.contains('hidden');
+    filterControls?.classList.toggle('hidden', isOpen);
+    filterToggleBtn.setAttribute('aria-expanded', String(!isOpen));
+    filterToggleChevron?.classList.toggle('rotate-180', !isOpen);
+  });
+
+  // Auto-expand filters when resizing to desktop
+  let lastWidth = window.innerWidth;
+  window.addEventListener('resize', () => {
+    const now = window.innerWidth;
+    if (lastWidth < 768 && now >= 768) {
+      // Crossed into desktop — let CSS md:flex take over
+      filterControls?.classList.remove('hidden');
+      filterToggleBtn?.setAttribute('aria-expanded', 'true');
+      filterToggleChevron?.classList.remove('rotate-180');
+    }
+    if (lastWidth >= 768 && now < 768) {
+      // Crossed into mobile — re-collapse
+      filterControls?.classList.add('hidden');
+      filterToggleBtn?.setAttribute('aria-expanded', 'false');
+      filterToggleChevron?.classList.remove('rotate-180');
+    }
+    lastWidth = now;
+  });
+
+  // Category multi-select dropdown
+  const dropdownBtn = document.getElementById('category-dropdown-btn');
+  const dropdownPanel = document.getElementById('category-dropdown-panel');
+  const dropdownLabel = document.getElementById('category-dropdown-label');
+  const dropdownChevron = document.getElementById('category-dropdown-chevron');
+  const categoryOptions = document.querySelectorAll('.category-option');
+
+  function updateDropdownLabel() {
+    if (!dropdownLabel) return;
+    if (selectedCategories.size === 0) {
+      dropdownLabel.textContent = 'Semua Kategori';
+    } else if (selectedCategories.size === 1) {
+      dropdownLabel.textContent = [...selectedCategories][0];
+    } else {
+      dropdownLabel.textContent = `${selectedCategories.size} kategori`;
+    }
+  }
+
+  function syncCheckmark(labelEl) {
+    if (!labelEl) return;
+    const cat = labelEl.dataset.category;
+    const checkbox = labelEl.querySelector('.category-check');
+    const checkmark = labelEl.querySelector('svg');
+    if (!checkbox || !checkmark) return;
+
+    if (cat === 'Semua') {
+      // Semua is checked when nothing is selected
+      const isChecked = selectedCategories.size === 0;
+      checkbox.className = `category-check w-[18px] h-[18px] rounded-[4px] border flex items-center justify-center shrink-0 ${isChecked ? 'bg-[#1A1D23] border-[#1A1D23]' : 'border-[#E8E9ED]'}`;
+      checkmark.classList.toggle('hidden', !isChecked);
+    } else {
+      const isChecked = selectedCategories.has(cat);
+      checkbox.className = `category-check w-[18px] h-[18px] rounded-[4px] border flex items-center justify-center shrink-0 ${isChecked ? 'bg-[#1A1D23] border-[#1A1D23]' : 'border-[#E8E9ED]'}`;
+      checkmark.classList.toggle('hidden', !isChecked);
+    }
+  }
+
+  dropdownBtn?.addEventListener('click', () => {
+    const isOpen = !dropdownPanel?.classList.contains('hidden');
+    dropdownPanel?.classList.toggle('hidden', isOpen);
+    dropdownBtn.setAttribute('aria-expanded', String(!isOpen));
+    dropdownChevron?.classList.toggle('rotate-180', !isOpen);
+  });
+
+  // Close dropdown on outside click
+  document.addEventListener('mousedown', (e) => {
+    const container = document.getElementById('category-filter-container');
+    if (container && !container.contains(e.target)) {
+      dropdownPanel?.classList.add('hidden');
+      dropdownBtn?.setAttribute('aria-expanded', 'false');
+      dropdownChevron?.classList.remove('rotate-180');
+    }
+  });
+
+  categoryOptions.forEach(label => {
+    label.addEventListener('click', () => {
+      const cat = label.dataset.category;
+      if (!cat) return;
+
+      if (cat === 'Semua') {
+        selectedCategories.clear();
+      } else {
+        // Selecting a specific category removes "Semua" (empty set = all)
+        if (selectedCategories.has(cat)) {
+          selectedCategories.delete(cat);
+        } else {
+          selectedCategories.add(cat);
+          // If all categories are selected, revert to "Semua"
+          const allCats = [...categoryOptions].map(l => l.dataset.category).filter(c => c && c !== 'Semua');
+          if (allCats.every(c => selectedCategories.has(c))) {
+            selectedCategories.clear();
+          }
+        }
+      }
+
+      // Sync all checkmarks
+      categoryOptions.forEach(l => syncCheckmark(l));
+      updateDropdownLabel();
+      updateFilterSummary();
+      render();
+    });
+  });
+
+  // Tag multi-select dropdown
+  const tagDropdownBtn = document.getElementById('tag-dropdown-btn');
+  const tagDropdownPanel = document.getElementById('tag-dropdown-panel');
+  const tagDropdownLabel = document.getElementById('tag-dropdown-label');
+  const tagDropdownChevron = document.getElementById('tag-dropdown-chevron');
+  const tagOptions = document.querySelectorAll('.tag-option');
+
+  function updateTagDropdownLabel() {
+    if (!tagDropdownLabel) return;
+    if (selectedTags.size === 0) {
+      tagDropdownLabel.textContent = 'Semua Tag';
+    } else if (selectedTags.size === 1) {
+      tagDropdownLabel.textContent = '#' + [...selectedTags][0];
+    } else {
+      tagDropdownLabel.textContent = `${selectedTags.size} tag`;
+    }
+  }
+
+  function syncTagCheckmark(labelEl) {
+    if (!labelEl) return;
+    const tag = labelEl.dataset.tag;
+    const checkbox = labelEl.querySelector('.tag-check');
+    const checkmark = labelEl.querySelector('svg');
+    if (!checkbox || !checkmark) return;
+
+    if (tag === 'Semua') {
+      const isChecked = selectedTags.size === 0;
+      checkbox.className = `tag-check w-[18px] h-[18px] rounded-[4px] border flex items-center justify-center shrink-0 ${isChecked ? 'bg-[#1A1D23] border-[#1A1D23]' : 'border-[#E8E9ED]'}`;
+      checkmark.classList.toggle('hidden', !isChecked);
+    } else {
+      const isChecked = selectedTags.has(tag);
+      checkbox.className = `tag-check w-[18px] h-[18px] rounded-[4px] border flex items-center justify-center shrink-0 ${isChecked ? 'bg-[#1A1D23] border-[#1A1D23]' : 'border-[#E8E9ED]'}`;
+      checkmark.classList.toggle('hidden', !isChecked);
+    }
+  }
+
+  tagDropdownBtn?.addEventListener('click', () => {
+    const isOpen = !tagDropdownPanel?.classList.contains('hidden');
+    tagDropdownPanel?.classList.toggle('hidden', isOpen);
+    tagDropdownBtn.setAttribute('aria-expanded', String(!isOpen));
+    tagDropdownChevron?.classList.toggle('rotate-180', !isOpen);
+  });
+
+  // Close tag dropdown on outside click
+  document.addEventListener('mousedown', (e) => {
+    const container = document.getElementById('tag-filter-container');
+    if (container && !container.contains(e.target)) {
+      tagDropdownPanel?.classList.add('hidden');
+      tagDropdownBtn?.setAttribute('aria-expanded', 'false');
+      tagDropdownChevron?.classList.remove('rotate-180');
+    }
+  });
+
+  tagOptions.forEach(label => {
+    label.addEventListener('click', () => {
+      const tag = label.dataset.tag;
+      if (!tag) return;
+
+      if (tag === 'Semua') {
+        selectedTags.clear();
+      } else {
+        if (selectedTags.has(tag)) {
+          selectedTags.delete(tag);
+        } else {
+          selectedTags.add(tag);
+          const allTs = [...tagOptions].map(l => l.dataset.tag).filter(t => t && t !== 'Semua');
+          if (allTs.every(t => selectedTags.has(t))) {
+            selectedTags.clear();
+          }
+        }
+      }
+
+      tagOptions.forEach(l => syncTagCheckmark(l));
+      updateTagDropdownLabel();
+      updateFilterSummary();
+      render();
+    });
+  });
+
+  // Restore saved categories
+  if (savedCategory) {
+    const cats = savedCategory.split(',');
+    if (cats.length === 1 && cats[0] === 'Semua') {
+      selectedCategories.clear();
+    } else {
+      selectedCategories = new Set(cats.filter(c => c !== 'Semua'));
+    }
+    categoryOptions.forEach(l => syncCheckmark(l));
+    updateDropdownLabel();
+  }
+
+  // Search
+  document.getElementById('search-input')?.addEventListener('input', (e) => {
+    searchQuery = e.target.value;
+    updateFilterSummary();
+    render();
+  });
+
+  // Sort
+  document.getElementById('sort-select')?.addEventListener('change', (e) => {
+    sortBy = e.target.value;
+    updateFilterSummary();
+    render();
+  });
+
+  // View toggle
+  document.getElementById('view-grid-btn')?.addEventListener('click', () => {
+    viewMode = 'grid';
+    document.getElementById('view-grid-btn')?.classList.add('bg-[#FFFFFF]', 'text-[#1A1D23]', 'shadow-sm');
+    document.getElementById('view-grid-btn')?.classList.remove('text-[#5B606D]');
+    document.getElementById('view-list-btn')?.classList.remove('bg-[#FFFFFF]', 'text-[#1A1D23]', 'shadow-sm');
+    document.getElementById('view-list-btn')?.classList.add('text-[#5B606D]');
+    render();
+  });
+
+  document.getElementById('view-list-btn')?.addEventListener('click', () => {
+    viewMode = 'list';
+    document.getElementById('view-list-btn')?.classList.add('bg-[#FFFFFF]', 'text-[#1A1D23]', 'shadow-sm');
+    document.getElementById('view-list-btn')?.classList.remove('text-[#5B606D]');
+    document.getElementById('view-grid-btn')?.classList.remove('bg-[#FFFFFF]', 'text-[#1A1D23]', 'shadow-sm');
+    document.getElementById('view-grid-btn')?.classList.add('text-[#5B606D]');
+    render();
+  });
+
+  // Initial render
+  render();
+  updateFilterSummary();
+
+  // Restore scroll position after render
+  if (savedScrollY) {
+    requestAnimationFrame(() => {
+      window.scrollTo(0, parseInt(savedScrollY, 10));
+      sessionStorage.removeItem('catalog-scroll-y');
+    });
+  }
+
+  // Save scroll and filter state before navigating away
+  function saveCatalogState() {
+    sessionStorage.setItem('catalog-scroll-y', String(window.scrollY));
+    sessionStorage.setItem('catalog-category', selectedCategories.size === 0 ? 'Semua' : [...selectedCategories].join(','));
+    sessionStorage.setItem('catalog-sort', sortBy);
+    sessionStorage.setItem('catalog-view', viewMode);
+  }
+  window.addEventListener('beforeunload', saveCatalogState);
+  // Also save on pagehide (iOS Safari doesn't reliably fire beforeunload)
+  window.addEventListener('pagehide', saveCatalogState);
+  // Save on visibility change (app backgrounding)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveCatalogState();
+  });
+
+  // Update sort select to match restored state
+  if (savedSort) {
+    const sortSelect = document.getElementById('sort-select');
+    if (sortSelect) sortSelect.value = savedSort;
+  }
+
+  // Update view toggle buttons to match restored state
+  if (savedViewMode) {
+    viewMode = savedViewMode;
+    if (savedViewMode === 'list') {
+      document.getElementById('view-list-btn')?.classList.add('bg-[#FFFFFF]', 'text-[#1A1D23]', 'shadow-sm');
+      document.getElementById('view-list-btn')?.classList.remove('text-[#5B606D]');
+      document.getElementById('view-grid-btn')?.classList.remove('bg-[#FFFFFF]', 'text-[#1A1D23]', 'shadow-sm');
+      document.getElementById('view-grid-btn')?.classList.add('text-[#5B606D]');
+    }
+  }
+
+  // ============================================================
+  // Mobile bottom sheet intercept
+  // ============================================================
+  const MOBILE_BREAKPOINT = 1024;
+
+  function buildSheet(product) {
+    const firstVariant = product.variants[0];
+    const vImages = (firstVariant && firstVariant.images && firstVariant.images.length > 0) ? firstVariant.images : (product.images || []);
+    const imgSrc = vImages[0] || 'https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=800';
+
+    const variantPills = product.variants.map((v, i) => `
+      <button
+        data-testid="variant-pill"
+        data-variant-id="${v.id}"
+        data-price-jpy="${v.price_jpy}"
+        data-price-idr="${v.price_idr_estimate ?? 0}"
+        class="variant-pill shrink-0 px-4 py-2 rounded-full border text-[0.8125rem] font-semibold transition-all ${i === 0 ? 'bg-[#1A8F89] text-white border-[#1A8F89]' : 'bg-white text-[#1A1D23] border-[#E8E9ED] hover:border-[#1A8F89]'}"
+      >${esc(v.variant_name)}</button>
+    `).join('');
+
+    return `
+      <div id="bottom-sheet-overlay" class="fixed inset-0 z-50 flex flex-col justify-end" style="background:rgba(0,0,0,0); overscroll-behavior:contain; touch-action:none; transition: background-color 300ms ease-out">
+        <div id="bottom-sheet" class="bg-white rounded-t-[20px] max-h-[92dvh] flex flex-col overflow-hidden transition-transform duration-300 ease-out" style="transform:translateY(100%)">
+          <div class="flex justify-center pt-3 pb-2 shrink-0 cursor-pointer" id="sheet-drag-handle">
+            <div class="w-10 h-1 rounded-full bg-[#E8E9ED]"></div>
+          </div>
+          <div class="overflow-y-auto flex-1 pb-24">
+            <div class="w-full aspect-square bg-white relative">
+              <img id="sheet-main-img" src="${esc(imgSrc)}" alt="${esc(product.name)}" class="w-full h-full object-contain p-4" />
+            </div>
+            <div id="sheet-thumbnails" class="px-4 flex gap-1.5 overflow-x-auto pb-1 no-scrollbar mt-1 hidden"></div>
+            <div class="px-4 pt-4">
+              <span class="inline-block bg-[#F1F2F5] text-[#5B606D] rounded-full px-2 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.1em] mb-2">${esc(product.category)}</span>
+              <h2 class="text-[1.25rem] font-bold text-[#1A1D23] leading-tight mb-4">${esc(product.name)}</h2>
+              <p class="text-[0.875rem] text-[#5B606D] font-semibold mb-2">Pilih Varian</p>
+              <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">${variantPills}</div>
+              <div class="mt-3 p-3 bg-[#F9F9F7] rounded-[8px] border border-[#E8E9ED]">
+                <span id="sheet-price-jpy" class="font-mono text-[0.8125rem] text-[#5B606D] block">¥ ${firstVariant.price_jpy.toLocaleString('ja-JP')}</span>
+                <span id="sheet-price-idr" class="font-bold text-[1.125rem] text-[#1A8F89]">Est. Rp ${(firstVariant.price_idr_estimate ?? 0).toLocaleString('id-ID')}</span>
+              </div>
+              <div class="mt-4">
+                <p class="text-[0.875rem] text-[#1A1D23] font-semibold mb-2">Kuantitas</p>
+                <div class="flex items-center h-[44px] bg-white border border-[#E8E9ED] rounded-[6px] overflow-hidden w-fit">
+                  <button id="sheet-qty-minus" class="w-[44px] h-full flex items-center justify-center text-[#5B606D] hover:bg-[#F1F2F5] disabled:opacity-40" disabled>
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M20 12H4"/></svg>
+                  </button>
+                  <div id="sheet-qty-display" class="w-[48px] h-full flex items-center justify-center font-mono text-[0.9375rem] font-semibold text-[#1A1D23] border-l border-r border-[#E8E9ED]">1</div>
+                  <button id="sheet-qty-plus" class="w-[44px] h-full flex items-center justify-center text-[#5B606D] hover:bg-[#F1F2F5]">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="mt-6 pt-4 border-t border-[#E8E9ED]">
+                <p class="text-[0.9375rem] font-semibold text-[#1A1D23] mb-2">Deskripsi Produk</p>
+                <p class="text-[0.875rem] text-[#5B606D] leading-relaxed whitespace-pre-wrap">${esc(product.description)}</p>
+              </div>
+            </div>
+          </div>
+          <div class="absolute bottom-0 left-0 right-0 px-4 py-4 bg-white border-t border-[#E8E9ED]" style="padding-bottom:max(1rem, env(safe-area-inset-bottom))">
+            <button id="sheet-order-btn" data-testid="sheet-btn-add-order" data-product-id="${product.id}"
+              class="w-full h-[48px] bg-[#0F726E] hover:bg-[#0A5D59] text-white rounded-[8px] text-[0.875rem] font-semibold uppercase tracking-[0.05em] transition-all flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+              Tambah ke Pesanan
+            </button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  let sheetQty = 1;
+  let activeVariantId = null;
+
+  function openSheet(product) {
+    // iOS scroll lock — save scroll position and lock body
+    const scrollY = window.scrollY;
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    document.body.insertAdjacentHTML('beforeend', buildSheet(product));
+    activeVariantId = product.variants[0]?.id ?? null;
+    sheetQty = 1;
+
+    const sheetMainImg = document.getElementById('sheet-main-img');
+    const sheetThumbnails = document.getElementById('sheet-thumbnails');
+
+    function updateSheetGallery(images) {
+      const activeImages = (images && images.length > 0) ? images : (product.images || []);
+      if (sheetMainImg) {
+        sheetMainImg.src = activeImages[0] || 'https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=800';
+      }
+      if (sheetThumbnails) {
+        if (activeImages.length > 1) {
+          sheetThumbnails.innerHTML = activeImages.map((img, idx) => `
+            <button class="relative w-10 h-10 rounded border bg-white overflow-hidden shrink-0 sheet-thumb-btn ${idx === 0 ? 'border-[#1A8F89] ring-1 ring-[#1A8F89]' : 'border-[#E8E9ED]'}" data-src="${img}">
+              <img src="${img}" class="w-full h-full object-cover" />
+            </button>
+          `).join('');
+          sheetThumbnails.classList.remove('hidden');
+
+          sheetThumbnails.querySelectorAll('.sheet-thumb-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const src = btn.dataset.src;
+              if (sheetMainImg && src) sheetMainImg.src = src;
+              sheetThumbnails.querySelectorAll('.sheet-thumb-btn').forEach(b => {
+                b.classList.remove('border-[#1A8F89]', 'ring-1', 'ring-[#1A8F89]');
+                b.classList.add('border-[#E8E9ED]');
+              });
+              btn.classList.add('border-[#1A8F89]', 'ring-1', 'ring-[#1A8F89]');
+              btn.classList.remove('border-[#E8E9ED]');
+            });
+          });
+        } else {
+          sheetThumbnails.innerHTML = '';
+          sheetThumbnails.classList.add('hidden');
+        }
+      }
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const sheet = document.getElementById('bottom-sheet');
+        const overlay = document.getElementById('bottom-sheet-overlay');
+        if (sheet) sheet.style.transform = 'translateY(0)';
+        if (overlay) overlay.style.backgroundColor = 'rgba(0,0,0,0.4)';
+      });
+    });
+
+    // Seed initial variant gallery
+    if (product.variants[0]) {
+      updateSheetGallery(product.variants[0].images);
+    }
+
+    document.querySelectorAll('.variant-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('.variant-pill').forEach(p => {
+          p.classList.remove('bg-[#1A8F89]', 'text-white', 'border-[#1A8F89]');
+          p.classList.add('bg-white', 'text-[#1A1D23]', 'border-[#E8E9ED]');
+        });
+        pill.classList.add('bg-[#1A8F89]', 'text-white', 'border-[#1A8F89]');
+        pill.classList.remove('bg-white', 'text-[#1A1D23]', 'border-[#E8E9ED]');
+        activeVariantId = pill.dataset.variantId;
+        const priceJpy = parseInt(pill.dataset.priceJpy);
+        const idr = parseInt(pill.dataset.priceIdr);
+        document.getElementById('sheet-price-jpy').textContent = '¥ ' + priceJpy.toLocaleString('ja-JP');
+        document.getElementById('sheet-price-idr').textContent = 'Est. Rp ' + idr.toLocaleString('id-ID');
+
+        // Swap gallery for active variant
+        const variantObj = product.variants.find(v => v.id === activeVariantId);
+        updateSheetGallery(variantObj ? variantObj.images : []);
+      });
+    });
+
+    const qtyDisplay = document.getElementById('sheet-qty-display');
+    const qtyMinus = document.getElementById('sheet-qty-minus');
+    const qtyPlus = document.getElementById('sheet-qty-plus');
+    function updateSheetQty(n) {
+      if (n < 1 || n > 10) return;
+      sheetQty = n;
+      qtyDisplay.textContent = String(sheetQty);
+      qtyMinus.disabled = sheetQty <= 1;
+      qtyPlus.disabled = sheetQty >= 10;
+    }
+    qtyMinus?.addEventListener('click', () => updateSheetQty(sheetQty - 1));
+    qtyPlus?.addEventListener('click', () => updateSheetQty(sheetQty + 1));
+
+    document.getElementById('sheet-order-btn')?.addEventListener('click', () => {
+      if (!isGateOpen) return;
+      pendingOrderData = { product_id: product.id, variant_id: activeVariantId, qty: sheetQty };
+      activeProductNotes = product.notes || [];
+      if (!waNumber) {
+        waDialog?.showModal();
+      } else {
+        showConfirmDialog();
+      }
+    });
+
+    document.getElementById('bottom-sheet-overlay')?.addEventListener('click', (e) => {
+      if (e.target === document.getElementById('bottom-sheet-overlay')) closeSheet();
+    });
+    document.getElementById('sheet-drag-handle')?.addEventListener('click', closeSheet);
+
+    // Swipe to dismiss
+    const sheet = document.getElementById('bottom-sheet');
+    const overlay = document.getElementById('bottom-sheet-overlay');
+    const scrollContainer = sheet?.querySelector('.overflow-y-auto');
+
+    let startY = 0;
+    let isDragging = false;
+    let dragStartOnHandle = false;
+
+    const onTouchStart = (e) => {
+      const handle = document.getElementById('sheet-drag-handle');
+      const touch = e.touches[0];
+      const isHandle = handle && (e.target === handle || handle.contains(e.target));
+      const atTop = scrollContainer ? scrollContainer.scrollTop <= 0 : true;
+
+      if (isHandle || atTop) {
+        startY = touch.clientY;
+        isDragging = true;
+        dragStartOnHandle = !!isHandle;
+        if (sheet) sheet.style.transition = 'none';
+      }
+    };
+
+    const onTouchMove = (e) => {
+      if (!isDragging || !sheet || !overlay) return;
+      const touch = e.touches[0];
+      const deltaY = touch.clientY - startY;
+
+      if (deltaY > 0) {
+        if (e.cancelable) e.preventDefault();
+        sheet.style.transform = `translateY(${deltaY}px)`;
+        const opacity = Math.max(0, 0.4 * (1 - deltaY / sheet.offsetHeight));
+        overlay.style.backgroundColor = `rgba(0,0,0,${opacity})`;
+      } else {
+        sheet.style.transform = 'translateY(0)';
+        overlay.style.backgroundColor = 'rgba(0,0,0,0.4)';
+        if (!dragStartOnHandle) {
+          isDragging = false;
+        }
+      }
+    };
+
+    const onTouchEnd = (e) => {
+      if (!isDragging || !sheet || !overlay) return;
+      isDragging = false;
+      const touch = e.changedTouches[0];
+      const deltaY = touch.clientY - startY;
+
+      sheet.style.transition = '';
+      overlay.style.transition = 'background-color 300ms ease-out';
+
+      if (deltaY > sheet.offsetHeight * 0.25) {
+        closeSheet();
+      } else {
+        sheet.style.transform = 'translateY(0)';
+        overlay.style.backgroundColor = 'rgba(0,0,0,0.4)';
+        setTimeout(() => {
+          overlay.style.transition = '';
+        }, 300);
+      }
+    };
+
+    sheet?.addEventListener('touchstart', onTouchStart, { passive: true });
+    sheet?.addEventListener('touchmove', onTouchMove, { passive: false });
+    sheet?.addEventListener('touchend', onTouchEnd, { passive: true });
+  }
+
+  function closeSheet() {
+    const sheet = document.getElementById('bottom-sheet');
+    const overlay = document.getElementById('bottom-sheet-overlay');
+    if (sheet) sheet.style.transform = 'translateY(100%)';
+    if (overlay) {
+      overlay.style.transition = 'background-color 300ms ease-out';
+      overlay.style.backgroundColor = 'rgba(0,0,0,0)';
+    }
+    setTimeout(() => {
+      document.getElementById('bottom-sheet-overlay')?.remove();
+      // Restore iOS scroll lock
+      const top = document.body.style.top;
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      if (top) window.scrollTo(0, -parseInt(top, 10));
+      history.back();
+      activeVariantId = null;
+    }, 300);
+  }
+
+  // Intercept card clicks on mobile
+  document.addEventListener('click', (e) => {
+    if (window.innerWidth >= MOBILE_BREAKPOINT) return;
+    const card = e.target.closest('[data-product-id]');
+    if (!card) return;
+    e.preventDefault();
+    const productId = card.dataset.productId;
+    const product = productsWithIdr.find(p => p.id === productId);
+    if (!product || !product.variants?.length) return;
+    history.pushState({ productId }, '', `/catalog/${productId}`);
+    openSheet(product);
+  });
+
+  window.addEventListener('popstate', () => {
+    if (document.getElementById('bottom-sheet-overlay')) closeSheet();
+  });
+
+  // WA form submit
+  waForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const inputVal = waInput?.value?.trim() ?? '';
+    if (!inputVal || inputVal.length < 5) {
+      if (waError) { waError.textContent = 'Masukkan nomor WhatsApp yang valid.'; waError.classList.remove('hidden'); }
+      return;
+    }
+    if (waError) waError.classList.add('hidden');
+
+    try {
+      const res = await fetch('/api/orders/me/whatsapp', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ whatsapp_number: inputVal }),
+      });
+      if (res.ok) {
+        waNumber = inputVal;
+        waDialog?.close();
+        showConfirmDialog();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        if (waError) { waError.textContent = d.error || 'Gagal menyimpan nomor WA.'; waError.classList.remove('hidden'); }
+      }
+    } catch {
+      if (waError) { waError.textContent = 'Kesalahan jaringan. Coba lagi.'; waError.classList.remove('hidden'); }
+    }
+  });
+
+  // Cancel confirm dialog
+  cancelConfirmBtn?.addEventListener('click', () => {
+    confirmDialog?.close();
+  });
+
+  // Confirm order dialog: proceed to actually add order
+  confirmBtn?.addEventListener('click', async () => {
+    if (!pendingOrderData) return;
+    confirmDialog?.close();
+
+    const btn = document.getElementById('sheet-order-btn');
+    let originalHtml = '';
+    if (btn) {
+      btn.disabled = true;
+      originalHtml = btn.innerHTML;
+      btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Menambahkan...';
+    }
+
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pendingOrderData),
+      });
+      if (res.ok) {
+        window.showToast?.('Pesanan berhasil ditambahkan!', 'success');
+        closeSheet();
+        window.refreshOrderBadge?.();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        window.showToast?.(data.error || 'Gagal menambahkan pesanan. Coba lagi.', 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
+      }
+    } catch {
+      window.showToast?.('Terjadi kesalahan jaringan. Coba lagi.', 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+      }
+    }
+  });
+</script>

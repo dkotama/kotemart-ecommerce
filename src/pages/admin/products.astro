@@ -1,0 +1,750 @@
+---
+export const prerender = false;
+
+import AdminLayout from './layout.astro';
+import { env } from 'cloudflare:workers';
+import type { Product, Settings } from '../../lib/types';
+import { getSettings } from '../../lib/pricing';
+
+const user = Astro.locals.user;
+
+let products: (Product & { variantCount: number; minPrice: number; maxPrice: number })[] = [];
+let settings: Settings | null = null;
+
+try {
+  const db = (env as any).DB;
+  if (db) {
+    settings = await getSettings(db);
+    const result = await db.prepare(`
+      SELECT p.*, COUNT(v.id) as variantCount, MIN(v.price_jpy) as minPrice, MAX(v.price_jpy) as maxPrice
+      FROM products p
+      LEFT JOIN product_variants v ON v.product_id = p.id AND v.is_deleted = 0
+      WHERE p.is_deleted = 0
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+    `).all();
+    if (result?.results) {
+      products = result.results.map((p: any) => ({
+        ...p,
+        images: (() => { try { return JSON.parse(p.images || '[]'); } catch { return []; } })(),
+        variants: [],
+      }));
+    }
+  }
+} catch (err) {
+  console.error('Admin products fetch error:', err);
+}
+
+const rate = settings?.jpy_to_idr_rate ?? 110;
+const fee = settings?.global_fee_pct ?? 5;
+---
+
+<AdminLayout title="Katalog" user={user} currentPath="/admin/products">
+  <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <h2 class="text-[1.5rem] font-bold text-[#1A1D23] tracking-[-0.02em]">Kelola Katalog</h2>
+      <p class="text-[0.8125rem] text-[#5B606D]">Tambah, edit, atau hapus produk jastip di katalog publik.</p>
+    </div>
+    <button
+      id="btn-add-product"
+      class="btn-primary-custom shrink-0 w-full sm:w-auto"
+      onclick="window.openProductModal()"
+    >
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+      </svg>
+      Tambah Produk
+    </button>
+  </div>
+
+  <!-- Table -->
+  <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] overflow-hidden shadow-sm">
+    <div class="overflow-x-auto w-full">
+      <table class="w-full text-[0.875rem] border-collapse">
+        <thead>
+          <tr class="bg-[#F9F9F7] border-b border-[#E8E9ED] text-left text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">
+            <th class="py-3 px-4 w-[80px]">Foto</th>
+            <th class="py-3 px-4">Nama Produk</th>
+            <th class="py-3 px-4">Kategori</th>
+            <th class="py-3 px-4 text-center">Varian</th>
+            <th class="py-3 px-4 text-right">Harga JPY</th>
+            <th class="py-3 px-4 text-right">Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.length === 0 ? (
+            <tr>
+              <td colspan="6" class="py-12 text-center text-[#5B606D]">
+                Belum ada produk di katalog. Klik "Tambah Produk" untuk memulai.
+              </td>
+            </tr>
+          ) : (
+            products.map((p) => {
+              const imgSrc = p.images?.[0] ?? 'https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=800';
+              const priceLabel = p.minPrice === p.maxPrice
+                ? `¥ ${p.minPrice?.toLocaleString('ja-JP') ?? '—'}`
+                : `¥ ${p.minPrice?.toLocaleString('ja-JP')} – ¥ ${p.maxPrice?.toLocaleString('ja-JP')}`;
+              return (
+                <tr
+                  class="border-b border-[#E8E9ED] hover:bg-[#F9F9F7]/50 transition-colors product-row"
+                  data-id={p.id}
+                  data-name={p.name}
+                  data-category={p.category}
+                  data-desc={p.description}
+                  data-images={JSON.stringify(p.images)}
+                >
+                  <td class="py-3 px-4">
+                    <img src={imgSrc} alt={p.name} class="w-12 h-12 object-cover rounded-[4px] border border-[#E8E9ED]" />
+                  </td>
+                  <td class="py-3 px-4 font-semibold text-[#1A1D23] max-w-[280px] truncate">{p.name}</td>
+                  <td class="py-3 px-4">
+                    <span class="bg-[#E8E9ED] text-[#1A1D23] px-[8px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em]">
+                      {p.category}
+                    </span>
+                  </td>
+                  <td class="py-3 px-4 text-center">
+                    <span data-testid="variant-count-badge" class="bg-[#D5EDEB] text-[#0F726E] px-2 py-0.5 rounded-full text-[0.6875rem] font-semibold">
+                      {p.variantCount} varian
+                    </span>
+                  </td>
+                  <td data-testid="product-price-range" class="py-3 px-4 text-right font-mono text-[0.875rem]">{priceLabel}</td>
+                  <td class="py-3 px-4 text-right space-x-2">
+                    <button class="text-[#1A8F89] hover:underline font-semibold text-[0.8125rem] btn-edit" onclick={`window.openProductModal('${p.id}')`}>Edit</button>
+                    <button class="text-[#D1453B] hover:underline font-semibold text-[0.8125rem] btn-delete" onclick={`window.deleteProduct('${p.id}')`}>Hapus</button>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Product Modal -->
+  <dialog id="product-modal" class="modal">
+    <div class="modal-box bg-[#FFFFFF] border border-[#E8E9ED] shadow-lg rounded-[10px] max-w-[600px] w-full">
+      <h3 id="modal-title" class="font-bold text-lg text-[#1A1D23] mb-4">Tambah Produk</h3>
+      <form id="product-form" class="flex flex-col gap-4">
+        <input type="hidden" id="product-id" />
+
+        <!-- Section A: Parent Info -->
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Nama Produk <span class="text-[#D1453B]">*</span></label>
+          <input type="text" id="input-name" required
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="Contoh: Biore UV Sunscreen" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1">
+            <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Kategori <span class="text-[#D1453B]">*</span></label>
+            <select id="input-category" required
+              class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] bg-white text-[#1A1D23]">
+              <option value="" disabled selected>Pilih Kategori</option>
+              {(settings?.product_categories ?? []).map(cat => <option value={cat}>{cat}</option>)}
+            </select>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Foto Produk</label>
+            <div class="flex items-start gap-2">
+              <div id="image-preview-container" class="flex flex-wrap gap-2 flex-grow min-h-[40px] p-1.5 border border-[#E8E9ED] rounded-[6px] bg-[#F9F9F7] items-center">
+                <svg class="w-5 h-5 text-[#5B606D] opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div class="shrink-0">
+                <input type="file" id="input-file" accept="image/jpeg,image/png,image/webp" class="hidden" />
+                <button type="button" id="btn-upload" class="btn-secondary-custom h-[36px] w-[100px] text-xs">Pilih Foto</button>
+                <div id="upload-status" class="text-[0.625rem] text-[#5B606D] mt-0.5 max-w-[100px] truncate">Max 5MB</div>
+              </div>
+            </div>
+            <div id="upload-progress-container" class="w-full bg-[#E8E9ED] h-1.5 rounded-full overflow-hidden hidden">
+              <div id="upload-progress" class="bg-[#1A8F89] h-full transition-all progress-bar-indeterminate" style="width: 0%"></div>
+            </div>
+            <input type="hidden" id="input-images-json" value="[]" />
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Tags</label>
+          <div id="product-tags-container" class="flex flex-wrap gap-1.5 min-h-[36px] p-1.5 border border-[#E8E9ED] rounded-[6px] bg-white items-center">
+            <input type="text" id="input-tag" placeholder="Ketik tag & Enter..." class="border-0 focus:ring-0 p-0 text-[0.8125rem] outline-none ml-1 flex-1 min-w-[100px]" list="tags-datalist" />
+          </div>
+          <datalist id="tags-datalist"></datalist>
+          <input type="hidden" id="input-tags-json" value="[]" />
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Catatan Produk</label>
+          <div id="product-notes-chips" class="flex flex-wrap gap-1.5 min-h-[36px] p-1.5 border border-[#E8E9ED] rounded-[6px] bg-white items-center">
+            <!-- Removable note chips -->
+          </div>
+          <input type="hidden" id="input-notes-json" value="[]" />
+
+          <div class="text-[0.75rem] text-[#5B606D]">Pilih dari template:</div>
+          <div class="flex flex-wrap gap-1.5" id="template-notes-picker">
+            {(settings?.note_templates ?? []).map(note => (
+              <button type="button" class="template-note-btn px-2.5 py-1 rounded bg-[#F1F2F5] hover:bg-[#E8E9ED] text-[#1A1D23] text-[0.75rem] font-medium transition-colors" data-value={note}>
+                {note}
+              </button>
+            ))}
+          </div>
+          <div class="flex gap-2 mt-1">
+            <input type="text" id="input-custom-note" placeholder="Tulis catatan kustom..." class="flex-grow h-[32px] px-2.5 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]" />
+            <button type="button" id="btn-add-custom-note" class="h-[32px] px-3 border border-[#E8E9ED] hover:bg-[#F1F2F5] rounded-[6px] text-xs font-semibold text-[#1A1D23]">Tambah</button>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Deskripsi <span class="text-[#D1453B]">*</span></label>
+          <textarea id="input-desc" required rows="3"
+            class="w-full p-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] resize-y"
+            placeholder="Tulis deskripsi detail produk..."></textarea>
+        </div>
+
+        <!-- Section B: Variants -->
+        <div class="border-t border-[#E8E9ED] pt-4">
+          <div class="flex items-center justify-between mb-3">
+            <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Varian <span class="text-[#D1453B]">*</span></label>
+            <button type="button" id="btn-add-variant"
+              class="text-[0.75rem] font-semibold text-[#1A8F89] hover:underline flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+              Tambah Varian
+            </button>
+          </div>
+          <div id="variants-container" class="flex flex-col gap-2"></div>
+          <p id="variants-error" class="text-[0.75rem] text-[#D1453B] mt-1 hidden">Minimal satu varian diperlukan.</p>
+        </div>
+
+        <!-- Live IDR preview -->
+        <div class="flex flex-col gap-2 bg-[#F9F9F7] border border-[#E8E9ED] rounded-[6px] px-3 py-2.5 text-[0.8125rem]">
+          <div class="flex justify-between">
+            <span class="text-[#5B606D]">Kurs JPY→IDR</span>
+            <span id="calc-rate" class="font-mono text-[#1A1D23]">—</span>
+          </div>
+          <div class="flex justify-between font-semibold">
+            <span class="text-[#1A1D23]">Est. IDR (varian pertama)</span>
+            <span id="calc-est-idr" class="font-mono text-[#0F726E]">—</span>
+          </div>
+        </div>
+
+        <div class="modal-action border-t border-[#E8E9ED] pt-4 mt-2">
+          <input type="file" id="variant-file-input" accept="image/jpeg,image/png,image/webp" class="hidden" />
+          <button type="button" class="btn btn-ghost text-[#5B606D] rounded-[6px]" onclick="document.getElementById('product-modal').close()">Batal</button>
+          <button type="submit" id="btn-save" class="btn bg-[#0F726E] hover:bg-[#0A5D59] text-white rounded-[6px]">Simpan</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+</AdminLayout>
+
+<script define:vars={{ rate, fee }}>
+  const modal = document.getElementById('product-modal');
+  const modalTitle = document.getElementById('modal-title');
+  const form = document.getElementById('product-form');
+  const idInput = document.getElementById('product-id');
+  const nameInput = document.getElementById('input-name');
+  const catInput = document.getElementById('input-category');
+  const descInput = document.getElementById('input-desc');
+  const imagesJsonInput = document.getElementById('input-images-json');
+  const fileInput = document.getElementById('input-file');
+  const uploadBtn = document.getElementById('btn-upload');
+  const uploadStatus = document.getElementById('upload-status');
+  const progressContainer = document.getElementById('upload-progress-container');
+  const progressBar = document.getElementById('upload-progress');
+  const previewContainer = document.getElementById('image-preview-container');
+  const variantsContainer = document.getElementById('variants-container');
+  const variantsError = document.getElementById('variants-error');
+  const calcRateEl = document.getElementById('calc-rate');
+  const calcEstIdrEl = document.getElementById('calc-est-idr');
+
+  const tagInput = document.getElementById('input-tag');
+  const tagsContainer = document.getElementById('product-tags-container');
+  const tagsJsonInput = document.getElementById('input-tags-json');
+  const tagsDatalist = document.getElementById('tags-datalist');
+  const variantFileInput = document.getElementById('variant-file-input');
+
+  const notesContainer = document.getElementById('product-notes-chips');
+  const notesJsonInput = document.getElementById('input-notes-json');
+  const customNoteInput = document.getElementById('input-custom-note');
+  const btnAddCustomNote = document.getElementById('btn-add-custom-note');
+
+  let variantRows = [];
+  let variantKeyCounter = 0;
+  let originalVariantIds = [];
+  let masterTags = [];
+  let selectedTags = [];
+  let selectedNotes = [];
+  let activeVariantUploadKey = null;
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function addVariantRow(data = {}) {
+    const key = variantKeyCounter++;
+    variantRows.push({
+      id: data.id || null,
+      variant_name: data.variant_name || '',
+      price_jpy: data.price_jpy !== undefined ? data.price_jpy : '',
+      product_url: data.product_url || '',
+      images: data.images || [],
+      _key: key
+    });
+    renderVariantRows();
+  }
+
+  function removeVariantRow(key) {
+    variantRows = variantRows.filter(r => r._key !== key);
+    renderVariantRows();
+    updateCalcPreview();
+  }
+
+  function renderVariantRows() {
+    variantsContainer.innerHTML = variantRows.map(row => {
+      const vImgSrc = (row.images && row.images.length > 0) ? row.images[0] : '';
+      const previewContent = vImgSrc
+        ? `<img src="${vImgSrc}" class="w-full h-full object-cover" />`
+        : `<svg class="w-4 h-4 text-[#5B606D] opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>`;
+
+      return `
+      <div class="flex gap-2 items-start variant-row" data-key="${row._key}">
+        <div class="flex items-center gap-1.5 shrink-0 mt-[2px]">
+          <div class="w-8 h-8 rounded border border-[#E8E9ED] bg-[#F1F2F5] overflow-hidden flex items-center justify-center shrink-0 variant-img-preview" data-key="${row._key}">
+            ${previewContent}
+          </div>
+          <button type="button" class="h-8 px-2 border border-[#E8E9ED] hover:bg-[#F1F2F5] text-[#1A1D23] rounded-[6px] text-xs font-semibold btn-variant-upload" data-key="${row._key}">Foto</button>
+        </div>
+        <input type="text" placeholder="Nama Varian *" value="${esc(row.variant_name)}"
+          class="flex-1 h-[36px] px-2 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] variant-name"
+          data-key="${row._key}" />
+        <input type="number" placeholder="Harga *" value="${esc(row.price_jpy)}" min="0"
+          class="w-[70px] h-[36px] px-2 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] variant-price"
+          data-key="${row._key}" />
+        <input type="text" placeholder="URL (opsional)" value="${esc(row.product_url)}"
+          class="flex-1 h-[36px] px-2 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] variant-url"
+          data-key="${row._key}" />
+        <button type="button" class="w-8 h-8 flex items-center justify-center text-[#D1453B] hover:bg-[#FDF3E7] rounded-[4px] shrink-0 mt-[2px] variant-remove" data-key="${row._key}">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      `;
+    }).join('');
+
+    variantsContainer.querySelectorAll('.btn-variant-upload').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeVariantUploadKey = parseInt(btn.dataset.key);
+        variantFileInput?.click();
+      });
+    });
+
+    variantsContainer.querySelectorAll('.variant-name').forEach(el => {
+      el.addEventListener('input', (e) => {
+        const key = parseInt(e.target.dataset.key);
+        const row = variantRows.find(r => r._key === key);
+        if (row) row.variant_name = e.target.value;
+      });
+    });
+    variantsContainer.querySelectorAll('.variant-price').forEach(el => {
+      el.addEventListener('input', (e) => {
+        const key = parseInt(e.target.dataset.key);
+        const row = variantRows.find(r => r._key === key);
+        if (row) { row.price_jpy = e.target.value; if (variantRows[0] && variantRows[0]._key === key) updateCalcPreview(); }
+      });
+    });
+    variantsContainer.querySelectorAll('.variant-url').forEach(el => {
+      el.addEventListener('input', (e) => {
+        const key = parseInt(e.target.dataset.key);
+        const row = variantRows.find(r => r._key === key);
+        if (row) row.product_url = e.target.value;
+      });
+    });
+    variantsContainer.querySelectorAll('.variant-remove').forEach(el => {
+      el.addEventListener('click', (e) => {
+        const key = parseInt(e.currentTarget.dataset.key);
+        removeVariantRow(key);
+      });
+    });
+  }
+
+  function updateCalcPreview() {
+    const firstPrice = parseFloat(variantRows[0]?.price_jpy) || 0;
+    calcRateEl.textContent = `Rp ${rate.toLocaleString('id-ID')} / ¥`;
+    if (firstPrice <= 0) { calcEstIdrEl.textContent = '—'; return; }
+    const raw = firstPrice * rate * (1 + fee / 100);
+    const est = Math.ceil(raw / 1000) * 1000;
+    calcEstIdrEl.textContent = `Rp ${est.toLocaleString('id-ID')}`;
+  }
+
+  document.getElementById('btn-add-variant')?.addEventListener('click', () => {
+    addVariantRow();
+    updateCalcPreview();
+  });
+
+  function renderParentImages() {
+    previewContainer.innerHTML = '';
+    let imgs = [];
+    try { imgs = JSON.parse(imagesJsonInput.value || '[]'); } catch {}
+    if (imgs.length === 0) {
+      previewContainer.innerHTML = `<svg class="w-5 h-5 text-[#5B606D] opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>`;
+      return;
+    }
+    imgs.forEach((imgSrc, idx) => {
+      const tile = document.createElement('div');
+      tile.className = 'relative w-10 h-10 rounded-[6px] border border-[#E8E9ED] overflow-hidden bg-[#F1F2F5] shrink-0';
+      tile.innerHTML = `
+        <img src="${imgSrc}" class="w-full h-full object-cover" />
+        <button type="button" class="absolute top-0 right-0 w-3.5 h-3.5 bg-black/60 text-white rounded-bl flex items-center justify-center text-[8px] hover:bg-black" data-idx="${idx}">✕</button>
+      `;
+      tile.querySelector('button')?.addEventListener('click', (e) => {
+        const i = parseInt(e.currentTarget.dataset.idx);
+        imgs.splice(i, 1);
+        imagesJsonInput.value = JSON.stringify(imgs);
+        renderParentImages();
+      });
+      previewContainer.appendChild(tile);
+    });
+  }
+
+  function renderTags() {
+    const inputChild = tagInput;
+    tagsContainer.querySelectorAll('.tag-chip').forEach(c => c.remove());
+    selectedTags.forEach(tag => {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip flex items-center gap-1 bg-[#F1F2F5] text-[#1A1D23] rounded-full px-2.5 py-0.5 text-[0.75rem] font-semibold';
+      chip.innerHTML = `#${esc(tag.name)}<button type="button" class="text-[#5B606D] hover:text-[#D1453B] ml-1 select-none" data-id="${tag.id || ''}" data-name="${tag.name}">✕</button>`;
+      chip.querySelector('button')?.addEventListener('click', (e) => {
+        const id = e.currentTarget.dataset.id;
+        const name = e.currentTarget.dataset.name;
+        selectedTags = selectedTags.filter(t => id ? t.id !== id : t.name !== name);
+        renderTags();
+      });
+      tagsContainer.insertBefore(chip, inputChild);
+    });
+    tagsJsonInput.value = JSON.stringify(selectedTags);
+  }
+
+  function renderNotes() {
+    notesContainer.innerHTML = '';
+    selectedNotes.forEach((note, idx) => {
+      const chip = document.createElement('span');
+      chip.className = 'note-chip flex items-center gap-1.5 bg-[#F1F2F5] text-[#1A1D23] rounded-full px-2.5 py-1 text-[0.75rem] font-semibold m-0.5';
+      chip.innerHTML = `${esc(note)}<button type="button" class="chip-remove text-[#5B606D] hover:text-[#D1453B] ml-1 leading-none" data-idx="${idx}">✕</button>`;
+      chip.querySelector('.chip-remove')?.addEventListener('click', (e) => {
+        const i = parseInt((e.currentTarget as HTMLElement).dataset.idx!);
+        selectedNotes.splice(i, 1);
+        renderNotes();
+      });
+      notesContainer.appendChild(chip);
+    });
+    notesJsonInput.value = JSON.stringify(selectedNotes);
+  }
+
+  document.querySelectorAll('.template-note-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const val = (e.currentTarget as HTMLButtonElement).dataset.value;
+      if (!val) return;
+      if (selectedNotes.includes(val)) return;
+      selectedNotes.push(val);
+      renderNotes();
+    });
+  });
+
+  btnAddCustomNote?.addEventListener('click', () => {
+    const val = (customNoteInput as HTMLInputElement).value.trim();
+    if (!val) return;
+    (customNoteInput as HTMLInputElement).value = '';
+    if (selectedNotes.includes(val)) return;
+    selectedNotes.push(val);
+    renderNotes();
+  });
+
+  customNoteInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      btnAddCustomNote?.click();
+    }
+  });
+
+  tagInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const val = tagInput.value.trim().replace(/^#/, '');
+      if (!val) return;
+      tagInput.value = '';
+
+      const isDup = selectedTags.some(t => t.name.toLowerCase() === val.toLowerCase());
+      if (isDup) return;
+
+      const matched = masterTags.find(t => t.name.toLowerCase() === val.toLowerCase());
+      if (matched) {
+        selectedTags.push(matched);
+      } else {
+        selectedTags.push({ id: null, name: val });
+      }
+      renderTags();
+    }
+  });
+
+  window.openProductModal = async function(productId) {
+    form.reset();
+    idInput.value = '';
+    imagesJsonInput.value = '[]';
+    tagsJsonInput.value = '[]';
+    notesJsonInput.value = '[]';
+    selectedTags = [];
+    selectedNotes = [];
+    variantRows = [];
+    variantKeyCounter = 0;
+    renderParentImages();
+    uploadStatus.textContent = 'Max 5MB (JPEG/PNG/WebP)';
+    progressContainer.classList.add('hidden');
+    variantsError.classList.add('hidden');
+
+    try {
+      const apiClient = window.apiClient || fetch;
+      const res = await apiClient('/api/tags');
+      if (res.ok) {
+        masterTags = await res.json();
+        if (tagsDatalist) {
+          tagsDatalist.innerHTML = masterTags.map(t => `<option value="#${t.name}"></option>`).join('');
+        }
+      }
+    } catch {}
+
+    if (productId) {
+      modalTitle.textContent = 'Edit Produk';
+      const row = document.querySelector(`.product-row[data-id="${productId}"]`);
+      if (row) {
+        idInput.value = productId;
+        nameInput.value = row.getAttribute('data-name') || '';
+        catInput.value = row.getAttribute('data-category') || '';
+        descInput.value = row.getAttribute('data-desc') || '';
+        const imgs = row.getAttribute('data-images') || '[]';
+        imagesJsonInput.value = imgs;
+        renderParentImages();
+      }
+      try {
+        const apiClient = window.apiClient || fetch;
+        const res = await apiClient(`/api/products/${productId}`);
+        if (res.ok) {
+          const data = await res.json();
+          (data.variants || []).forEach(v => addVariantRow(v));
+          selectedTags = data.tags || [];
+          renderTags();
+          selectedNotes = data.notes || [];
+          renderNotes();
+          originalVariantIds = (data.variants || []).map(v => v.id);
+        }
+      } catch {}
+    } else {
+      modalTitle.textContent = 'Tambah Produk';
+      originalVariantIds = [];
+      addVariantRow();
+      renderTags();
+      renderNotes();
+    }
+
+    updateCalcPreview();
+    modal.showModal();
+  };
+
+  uploadBtn?.addEventListener('click', () => fileInput?.click());
+
+  fileInput?.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED.includes(file.type)) { window.showToast?.('Format tidak didukung. Gunakan JPEG/PNG/WebP.', 'error'); return; }
+    if (file.size > 5 * 1024 * 1024) { window.showToast?.('Ukuran file melebihi 5MB.', 'error'); return; }
+    uploadStatus.textContent = '⚡ Mengompresi gambar...';
+    progressContainer.classList.remove('hidden');
+    progressBar.style.width = '30%';
+    progressBar.classList.remove('progress-bar-indeterminate');
+    try {
+      const compressedBlob = await compressImage(file, 1200, 0.8);
+      uploadStatus.textContent = '📤 Mengunggah gambar...';
+      progressBar.style.width = '60%';
+      const formData = new FormData();
+      formData.append('file', compressedBlob, `upload-${Date.now()}.webp`);
+      const res = await fetch('/api/products/upload-photo', { method: 'POST', body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        progressBar.style.width = '100%';
+        uploadStatus.textContent = '✅ Berhasil diunggah!';
+        window.showToast?.('Foto berhasil diunggah!', 'success');
+
+        const imgs = JSON.parse(imagesJsonInput.value || '[]');
+        imgs.push(data.url);
+        imagesJsonInput.value = JSON.stringify(imgs);
+        renderParentImages();
+      } else { throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed'); }
+    } catch (err) {
+      progressContainer.classList.add('hidden');
+      uploadStatus.textContent = '❌ Unggah gagal.';
+      window.showToast?.(err.message || 'Gagal mengunggah foto.', 'error');
+    }
+  });
+
+  function compressImage(file, maxWidth, quality) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let w = img.width, h = img.height;
+          if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
+          canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Compression error')), 'image/webp', quality);
+        };
+        img.onerror = () => reject(new Error('Image load error'));
+      };
+      reader.onerror = () => reject(new Error('File read error'));
+    });
+  }
+
+  variantFileInput?.addEventListener('change', async () => {
+    const file = variantFileInput.files?.[0];
+    if (!file || activeVariantUploadKey === null) return;
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED.includes(file.type)) { window.showToast?.('Format tidak didukung.', 'error'); return; }
+    if (file.size > 5 * 1024 * 1024) { window.showToast?.('Ukuran file melebihi 5MB.', 'error'); return; }
+
+    const row = variantRows.find(r => r._key === activeVariantUploadKey);
+    if (!row) return;
+
+    window.showToast?.('⚡ Mengunggah gambar varian...', 'info');
+    try {
+      const compressedBlob = await compressImage(file, 1200, 0.8);
+      const formData = new FormData();
+      formData.append('file', compressedBlob, `upload-variant-${Date.now()}.webp`);
+      const res = await fetch('/api/products/upload-photo', { method: 'POST', body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        row.images = [data.url];
+        renderVariantRows();
+        window.showToast?.('Foto varian berhasil diubah!', 'success');
+      } else { throw new Error(); }
+    } catch {
+      window.showToast?.('Gagal mengunggah foto varian.', 'error');
+    }
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const validVariants = variantRows.filter(r => r.variant_name.trim() && r.price_jpy !== '' && parseInt(r.price_jpy) > 0);
+    if (validVariants.length === 0) {
+      variantsError.classList.remove('hidden');
+      return;
+    }
+    variantsError.classList.add('hidden');
+
+    const id = idInput.value;
+    const isEdit = !!id;
+    const saveBtn = document.getElementById('btn-save');
+    saveBtn.disabled = true;
+
+    try {
+      const apiClient = window.apiClient || fetch;
+
+      // Resolve tags first: create tag if id is null
+      const finalTagIds = [];
+      for (const tag of selectedTags) {
+        if (tag.id) {
+          finalTagIds.push(tag.id);
+        } else {
+          const res = await apiClient('/api/admin/tags', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: tag.name }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            finalTagIds.push(data.id);
+          }
+        }
+      }
+
+      const parentBody = {
+        name: nameInput.value.trim(),
+        category: catInput.value.trim(),
+        description: descInput.value.trim(),
+        images: JSON.parse(imagesJsonInput.value || '[]'),
+        tag_ids: finalTagIds,
+        notes: selectedNotes,
+      };
+
+      let productId = id;
+
+      if (isEdit) {
+        const res = await apiClient(`/api/products/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(parentBody) });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Gagal memperbarui produk');
+      } else {
+        const res = await apiClient('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...parentBody,
+            variants: validVariants.map((v, i) => ({
+              variant_name: v.variant_name.trim(),
+              price_jpy: parseInt(v.price_jpy),
+              product_url: v.product_url?.trim() || null,
+              images: v.images || [],
+              sort_order: i,
+            })),
+          }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Gagal membuat produk');
+        const data = await res.json();
+        productId = data.id;
+      }
+
+      if (isEdit) {
+        const keepIds = validVariants.filter(v => v.id).map(v => v.id);
+        for (const vid of originalVariantIds) {
+          if (!keepIds.includes(vid)) {
+            await apiClient(`/api/products/${productId}/variants/${vid}`, { method: 'DELETE' });
+          }
+        }
+        for (let i = 0; i < validVariants.length; i++) {
+          const v = validVariants[i];
+          const body = {
+            variant_name: v.variant_name.trim(),
+            price_jpy: parseInt(v.price_jpy),
+            product_url: v.product_url?.trim() || null,
+            images: v.images || [],
+            sort_order: i
+          };
+          if (v.id) {
+            await apiClient(`/api/products/${productId}/variants/${v.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          } else {
+            await apiClient(`/api/products/${productId}/variants`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          }
+        }
+      }
+
+      window.showToast?.(isEdit ? 'Produk berhasil diubah!' : 'Produk berhasil dibuat!', 'success');
+      window.location.reload();
+    } catch (err) {
+      window.showToast?.(err.message || 'Terjadi kesalahan jaringan.', 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  window.deleteProduct = async function(id) {
+    if (!confirm('Apakah Anda yakin ingin menghapus produk ini dari katalog?')) return;
+    try {
+      const apiClient = window.apiClient || fetch;
+      const res = await apiClient(`/api/products/${id}`, { method: 'DELETE' });
+      if (res.ok) { window.location.reload(); }
+      else { window.showToast?.((await res.json().catch(() => ({}))).error || 'Gagal menghapus produk.', 'error'); }
+    } catch { window.showToast?.('Terjadi kesalahan jaringan.', 'error'); }
+  };
+</script>

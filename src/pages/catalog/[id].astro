@@ -1,0 +1,561 @@
+---
+export const prerender = false;
+
+import Layout from '../../layouts/Layout.astro';
+import type { Product, Settings, ProductVariant } from '../../lib/types';
+import { env } from 'cloudflare:workers';
+import { getSettings } from '../../lib/pricing';
+
+const { id } = Astro.params;
+const user = Astro.locals.user;
+
+let product: (Product & { price_idr_estimates: number[] }) | null = null;
+let isGateOpen = true;
+let telegramLink = 'https://t.me/kotemart';
+
+try {
+  const db = (env as any).DB;
+  if (db && id) {
+    const [productRow, settingsRow] = await Promise.all([
+      db.prepare(`SELECT * FROM products WHERE id = ? AND is_deleted = 0`).bind(id).first<Product & { images: string }>(),
+      getSettings(db),
+    ]);
+
+    if (settingsRow) {
+      isGateOpen = settingsRow.gate_status === 'Open';
+      telegramLink = settingsRow.telegram_link;
+    }
+
+    if (productRow) {
+      const images = (() => { try { return JSON.parse(productRow.images as unknown as string); } catch { return []; } })();
+      const varResult = await db.prepare(
+        `SELECT * FROM product_variants WHERE product_id = ? AND is_deleted = 0 ORDER BY sort_order ASC`
+      ).bind(id).all();
+      const rawVariants = varResult?.results ?? [];
+      const variants: ProductVariant[] = rawVariants.map(v => ({
+        ...v,
+        images: (() => { try { return JSON.parse(v.images as unknown as string); } catch { return []; } })(),
+      })) as unknown as ProductVariant[];
+
+      // Read stored price_idr_estimate directly from variants
+      const idrEstimates = variants.map(v => v.price_idr_estimate ?? 0);
+
+      product = {
+        ...productRow,
+        images,
+        variants,
+        min_price_jpy: variants.length ? Math.min(...variants.map(v => v.price_jpy)) : 0,
+        max_price_jpy: variants.length ? Math.max(...variants.map(v => v.price_jpy)) : 0,
+        price_idr_estimates: idrEstimates,
+      };
+    }
+  }
+} catch (err) {
+  console.error('Product detail fetch error:', err);
+}
+
+if (!product) {
+  return Astro.redirect('/catalog');
+}
+---
+
+<Layout title={product.name} user={user}>
+  <!-- Gate Closed Banner -->
+  {!isGateOpen && (
+    <div class="w-full bg-[#FDF3E7] border-l-[4px] border-l-[#D1453B] py-[12px] px-4 md:px-6 shadow-sm">
+      <div class="max-w-[1200px] mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <svg class="w-5 h-5 text-[#D1453B] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div>
+            <p class="text-[0.9375rem] font-semibold text-[#8B5E0A] leading-tight">Jastip sedang tutup</p>
+            <p class="text-[0.8125rem] text-[#8B5E0A] opacity-80 mt-0.5">Kami tidak menerima pesanan baru saat ini. Anda tidak dapat menambahkan pesanan.</p>
+          </div>
+        </div>
+        <a
+          href={telegramLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="whitespace-nowrap shrink-0 h-[44px] px-[12px] bg-[#FFFFFF] border border-[#E8E9ED] hover:bg-[#F1F2F5] text-[#1A1D23] rounded-[6px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em] transition-all focus:ring-2 focus:ring-[#1A8F89] focus:ring-offset-2 focus:ring-offset-[#FDF3E7] flex items-center gap-2 no-underline"
+        >
+          Hubungi Admin
+        </a>
+      </div>
+    </div>
+  )}
+
+  <main class="max-w-[1200px] mx-auto px-4 md:px-6 pt-[24px] md:pt-[40px] pb-24">
+
+    <!-- Back Link -->
+    <a
+      href="/catalog"
+      class="inline-flex items-center gap-2 text-[#5B606D] hover:text-[#1A8F89] transition-colors mb-[24px] group w-fit focus:outline-none focus:ring-2 focus:ring-[#1A8F89] rounded-[4px] no-underline"
+    >
+      <svg class="w-4 h-4 transition-transform group-hover:-translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+      </svg>
+      <span class="text-[0.8125rem] font-semibold leading-[1.3] uppercase tracking-[0.1em]">Kembali ke Katalog</span>
+    </a>
+
+    <!-- 2-column layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-[40px] lg:gap-[64px]">
+
+      <!-- Left: Image Gallery -->
+      <div class="flex flex-col gap-[16px]">
+        <!-- Main Image -->
+        <div class="w-full aspect-[4/3] sm:aspect-square bg-white rounded-[4px] border border-[#E8E9ED] overflow-hidden shadow-[0_1px_3px_rgba(26,29,35,0.06),0_1px_2px_rgba(26,29,35,0.04)]">
+          <img
+            id="main-product-image"
+            src={product.images[0] || 'https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=1000'}
+            alt={product.name}
+            class="w-full h-full object-contain p-4"
+          />
+        </div>
+
+        <!-- Thumbnail Strip -->
+        {product.images.length > 1 && (
+          <div class="grid grid-cols-4 gap-[12px] sm:gap-[16px]" id="thumbnail-strip">
+            {product.images.map((img, idx) => (
+              <button
+                class={`relative aspect-square bg-[#F1F2F5] rounded-[4px] overflow-hidden border transition-all focus:outline-none thumbnail-btn ${idx === 0 ? 'border-[#1A8F89] ring-2 ring-[#1A8F89] ring-offset-2' : 'border-[#E8E9ED] hover:border-[#5B606D]'}`}
+                data-idx={idx}
+                data-src={img}
+                aria-label={`Image ${idx + 1}`}
+              >
+                <img src={img} alt={`Thumbnail ${idx + 1}`} class="w-full h-full object-cover" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <!-- Right: Product Info & Actions -->
+      <div class="flex flex-col">
+        <!-- Category Badge & Name -->
+        <div class="mb-[24px]">
+          <span class="inline-block bg-[#F1F2F5] text-[#5B606D] rounded-full px-[8px] py-[4px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em] mb-[12px]">
+            {product.category}
+          </span>
+          <h1 class="text-[1.75rem] font-semibold leading-[1.25] tracking-[-0.02em] text-[#1A1D23]">
+            {product.name}
+          </h1>
+        </div>
+
+        <!-- Price Card -->
+        <div class="mb-[32px] p-[20px] bg-[#FFFFFF] rounded-[10px] border border-[#E8E9ED] shadow-[0_1px_3px_rgba(26,29,35,0.06),0_1px_2px_rgba(26,29,35,0.04)]">
+          {product.variants.length > 1 && (
+            <div class="mb-[16px]">
+              <p class="text-[0.8125rem] font-semibold text-[#1A1D23] mb-[8px]">Pilih Varian</p>
+              <div class="flex flex-wrap gap-2">
+                {product.variants.map((v, i) => (
+                  <button
+                    data-testid="variant-pill"
+                    data-variant-id={v.id}
+                    data-price-jpy={v.price_jpy}
+                    data-price-idr={product!.price_idr_estimates[i]}
+                    class={`variant-pill px-3 py-1.5 rounded-full border text-[0.8125rem] font-semibold transition-all ${i === 0 ? 'bg-[#1A8F89] text-white border-[#1A8F89]' : 'bg-white text-[#1A1D23] border-[#E8E9ED] hover:border-[#1A8F89]'}`}
+                  >
+                    {v.variant_name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div class="flex flex-col gap-1 mb-[12px]">
+            <span id="detail-price-jpy" class="font-mono text-[0.8125rem] leading-[1.6] text-[#5B606D]">
+              Harga Jepang: ¥ {product.variants[0]?.price_jpy.toLocaleString('ja-JP')}
+            </span>
+            <div class="flex items-end gap-2">
+              <span id="detail-price-idr" class="text-[1.5rem] font-bold leading-[1.2] tracking-[-0.02em] text-[#1A8F89]">
+                Est. Rp {product.price_idr_estimates[0]?.toLocaleString('id-ID')}
+              </span>
+            </div>
+          </div>
+          <div class="flex items-start gap-2 pt-[12px] border-t border-[#E8E9ED]">
+            <svg class="w-4 h-4 text-[#D4890B] mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="text-[0.8125rem] leading-[1.5] text-[#5B606D]">
+              Harga ini adalah estimasi. Harga final akan dikonfirmasi admin setelah barang berhasil dibeli.
+            </p>
+          </div>
+        </div>
+
+        <!-- Quantity & Order -->
+        <div class="mb-[40px]">
+          <h3 class="text-[0.9375rem] font-semibold leading-[1.55] text-[#1A1D23] mb-[12px]">
+            Kuantitas Pesanan
+          </h3>
+
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-[16px]">
+            <!-- Quantity Stepper -->
+            <div class="flex items-center h-[44px] bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] overflow-hidden shrink-0">
+              <button
+                id="qty-minus"
+                disabled={!isGateOpen}
+                class="w-[44px] h-full flex items-center justify-center text-[#5B606D] hover:bg-[#F1F2F5] hover:text-[#1A1D23] disabled:opacity-50 disabled:hover:bg-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#1A8F89]"
+                aria-label="Kurangi kuantitas"
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M20 12H4" /></svg>
+              </button>
+              <div id="qty-display" class="w-[48px] h-full flex items-center justify-center font-mono text-[0.9375rem] font-semibold text-[#1A1D23] border-l border-r border-[#E8E9ED]">
+                1
+              </div>
+              <button
+                id="qty-plus"
+                disabled={!isGateOpen}
+                class="w-[44px] h-full flex items-center justify-center text-[#5B606D] hover:bg-[#F1F2F5] hover:text-[#1A1D23] disabled:opacity-50 disabled:hover:bg-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#1A8F89]"
+                aria-label="Tambah kuantitas"
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+              </button>
+            </div>
+
+            <!-- Add to Order Button -->
+            <button
+              id="add-to-order-btn"
+              data-testid="btn-add-order"
+              disabled={!isGateOpen}
+              class={`flex-grow h-[44px] px-[24px] rounded-[6px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em] transition-all focus:ring-2 focus:ring-[#1A8F89] focus:ring-offset-2 flex items-center justify-center gap-2 ${isGateOpen ? 'bg-[#0F726E] hover:bg-[#0A5D59] text-[#FFFFFF]' : 'bg-[#F1F2F5] text-[#5B606D] cursor-not-allowed'}`}
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+              </svg>
+              {isGateOpen ? 'Tambah ke Pesanan' : 'Jastip Ditutup'}
+            </button>
+          </div>
+
+          {!isGateOpen && (
+            <p class="text-[0.8125rem] text-[#D1453B] mt-[12px]">
+              Pembukaan batch jastip sedang ditutup. Anda tidak dapat melakukan pemesanan saat ini.
+            </p>
+          )}
+        </div>
+
+        <!-- Notes Badges -->
+        {product.notes && product.notes.length > 0 && (
+          <div class="mb-[32px] flex flex-wrap gap-1.5">
+            {product.notes.map(note => (
+              <span class="inline-flex items-center gap-1 bg-[#FDF3E7] border border-[#F0D5B1] text-[#8B5E0A] rounded-[4px] px-2.5 py-1 text-[0.75rem] font-semibold">
+                <svg class="w-3.5 h-3.5 text-[#D4890B] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                {note}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <!-- Description -->
+        <div class="border-t border-[#E8E9ED] pt-[32px]">
+          <h3 class="text-[1.25rem] font-semibold leading-[1.3] tracking-[-0.01em] text-[#1A1D23] mb-[16px]">
+            Deskripsi Produk
+          </h3>
+          <div class="text-[0.9375rem] leading-[1.6] text-[#5B606D] whitespace-pre-wrap">
+            {product.description}
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</Layout>
+
+<!-- WhatsApp Gate Dialog -->
+<dialog id="wa-dialog" class="modal">
+  <div class="modal-box bg-[#FFFFFF] border border-[#E8E9ED] shadow-lg rounded-[12px] max-w-[400px]">
+    <div class="flex items-center gap-3 mb-4">
+      <div class="w-10 h-10 rounded-full bg-[#E7F8EE] flex items-center justify-center shrink-0">
+        <svg class="w-5 h-5 text-[#25D366]" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+      </div>
+      <div>
+        <h3 class="font-bold text-[1rem] text-[#1A1D23]">Nomor WhatsApp</h3>
+        <p class="text-[0.75rem] text-[#5B606D]">Diperlukan agar admin bisa menghubungi kamu</p>
+      </div>
+    </div>
+    <form id="wa-form" class="flex flex-col gap-3">
+      <div class="flex flex-col gap-1">
+        <label for="wa-input" class="text-[0.8125rem] font-semibold text-[#1A1D23]">Nomor WhatsApp <span class="text-[#D1453B]">*</span></label>
+        <input
+          type="tel"
+          id="wa-input"
+          autocomplete="tel"
+          class="w-full h-[42px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.9375rem] focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+          placeholder="Contoh: 628123456789"
+        />
+        <p class="text-[0.75rem] text-[#5B606D]">Format internasional, contoh: 628123456789 (tanpa spasi atau strip)</p>
+        <p id="wa-error" class="text-[0.75rem] text-[#D1453B] hidden"></p>
+      </div>
+      <div class="flex gap-2 justify-end pt-1">
+        <button type="button" class="h-[38px] px-4 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] font-semibold text-[#5B606D] hover:bg-[#F1F2F5] transition-colors" onclick="document.getElementById('wa-dialog').close()">
+          Batal
+        </button>
+        <button type="submit" class="h-[38px] px-4 bg-[#25D366] hover:bg-[#1DA851] text-white rounded-[6px] text-[0.8125rem] font-semibold transition-colors">
+          Simpan &amp; Lanjutkan
+        </button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- Order Confirmation Dialog -->
+<dialog id="confirm-order-dialog" class="modal">
+  <div class="modal-box bg-[#FFFFFF] border border-[#E8E9ED] shadow-lg rounded-[12px] max-w-[420px]">
+    <div class="flex items-start gap-3 mb-4">
+      <div class="w-10 h-10 rounded-full bg-[#D5EDEB] flex items-center justify-center shrink-0 mt-0.5">
+        <svg class="w-5 h-5 text-[#0F726E]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+        </svg>
+      </div>
+      <div>
+        <h3 class="font-bold text-[1rem] text-[#1A1D23]">Konfirmasi Pesanan</h3>
+        <p class="text-[0.8125rem] text-[#5B606D] mt-1 leading-[1.5]">
+          Pesananmu akan dikirim ke admin untuk dikonfirmasi. Kamu <strong>bisa membatalkan</strong> pesanan selama belum dikonfirmasi.
+        </p>
+      </div>
+    </div>
+    <div class="bg-[#F9F9F7] border border-[#E8E9ED] rounded-[8px] p-3 mb-4 text-[0.8125rem] text-[#5B606D] leading-[1.6]">
+      <ul class="flex flex-col gap-1.5">
+        <li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-[#1A8F89] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+          Status awal pesananmu: <span class="font-semibold text-[#1A1D23]">Draft</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-[#1A8F89] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+          Admin akan mengkonfirmasi dan mengubah ke <span class="font-semibold text-[#1A1D23]">Pending</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-[#D4890B] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Harga estimasi bisa berubah — harga final dikonfirmasi admin setelah barang dibeli
+        </li>
+        <li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-[#D1453B] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          Pembatalan <span class="font-semibold">tidak bisa dilakukan</span> setelah status <span class="font-semibold">Pending</span>
+        </li>
+      </ul>
+    </div>
+    <div id="confirm-notes-section" class="hidden bg-[#FDF3E7] border border-[#E8E9ED] rounded-[8px] p-3 mb-4 text-[0.8125rem] text-[#5B606D] leading-[1.6]">
+      <p class="font-semibold text-[#8B5E0A] mb-1.5 flex items-center gap-1.5">
+        <svg class="w-4 h-4 text-[#D4890B] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        Ketentuan/Catatan Produk:
+      </p>
+      <ul id="confirm-notes-list" class="flex flex-col gap-1.5 pl-5 list-disc text-[#8B5E0A]/90">
+      </ul>
+    </div>
+    <div class="flex gap-2 justify-end">
+      <button id="cancel-order-btn" type="button" class="h-[40px] px-4 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] font-semibold text-[#5B606D] hover:bg-[#F1F2F5] transition-colors">
+        Batalkan
+      </button>
+      <button id="confirm-order-btn" type="button" class="h-[40px] px-5 bg-[#0F726E] hover:bg-[#0A5D59] text-white rounded-[6px] text-[0.8125rem] font-semibold transition-colors flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+        Ya, Tambah Pesanan
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<script define:vars={{ productId: product.id, isGateOpen, variants: product.variants, priceIdrEstimates: product.price_idr_estimates, userWa: user?.whatsapp_number ?? null, productImages: product.images, productNotes: product.notes }}>
+  let qty = 1;
+  let selectedVariantId = variants[0]?.id ?? null;
+  let waNumber = userWa; // pre-filled if already saved
+
+  const mainImg = document.getElementById('main-product-image');
+  const thumbnailStrip = document.getElementById('thumbnail-strip');
+
+  function updateGallery(images) {
+    const activeImages = (images && images.length > 0) ? images : productImages;
+    if (mainImg) {
+      mainImg.src = activeImages[0] || 'https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=1000';
+    }
+    if (thumbnailStrip) {
+      if (activeImages.length > 1) {
+        thumbnailStrip.innerHTML = activeImages.map((img, idx) => `
+          <button
+            class="relative aspect-square bg-[#F1F2F5] rounded-[4px] overflow-hidden border transition-all focus:outline-none thumbnail-btn ${idx === 0 ? 'border-[#1A8F89] ring-2 ring-[#1A8F89] ring-offset-2' : 'border-[#E8E9ED] hover:border-[#5B606D]'}"
+            data-idx="${idx}"
+            data-src="${img}"
+            aria-label="Image ${idx + 1}"
+          >
+            <img src="${img}" alt="Thumbnail ${idx + 1}" class="w-full h-full object-cover" />
+          </button>
+        `).join('');
+        thumbnailStrip.classList.remove('hidden');
+
+        // Re-wire events
+        thumbnailStrip.querySelectorAll('.thumbnail-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const src = btn.dataset.src;
+            if (mainImg && src) mainImg.src = src;
+            thumbnailStrip.querySelectorAll('.thumbnail-btn').forEach(b => {
+              b.classList.remove('border-[#1A8F89]', 'ring-2', 'ring-[#1A8F89]', 'ring-offset-2');
+              b.classList.add('border-[#E8E9ED]');
+            });
+            btn.classList.add('border-[#1A8F89]', 'ring-2', 'ring-[#1A8F89]', 'ring-offset-2');
+            btn.classList.remove('border-[#E8E9ED]');
+          });
+        });
+      } else {
+        thumbnailStrip.innerHTML = '';
+        thumbnailStrip.classList.add('hidden');
+      }
+    }
+  }
+
+  // Variant pill selection
+  document.querySelectorAll('.variant-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.variant-pill').forEach(p => {
+        p.classList.remove('bg-[#1A8F89]', 'text-white', 'border-[#1A8F89]');
+        p.classList.add('bg-white', 'text-[#1A1D23]', 'border-[#E8E9ED]');
+      });
+      pill.classList.add('bg-[#1A8F89]', 'text-white', 'border-[#1A8F89]');
+      pill.classList.remove('bg-white', 'text-[#1A1D23]', 'border-[#E8E9ED]');
+      selectedVariantId = pill.dataset.variantId;
+      const priceJpy = parseInt(pill.dataset.priceJpy);
+      const priceIdr = parseInt(pill.dataset.priceIdr);
+      const jpyEl = document.getElementById('detail-price-jpy');
+      const idrEl = document.getElementById('detail-price-idr');
+      if (jpyEl) jpyEl.textContent = 'Harga Jepang: ¥ ' + priceJpy.toLocaleString('ja-JP');
+      if (idrEl) idrEl.textContent = 'Est. Rp ' + priceIdr.toLocaleString('id-ID');
+
+      // Find variant images and swap gallery
+      const variantObj = variants.find(v => v.id === selectedVariantId);
+      updateGallery(variantObj ? variantObj.images : []);
+    });
+  });
+
+  // Thumbnail gallery
+  document.querySelectorAll('.thumbnail-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const src = btn.dataset.src;
+      if (mainImg && src) mainImg.src = src;
+      document.querySelectorAll('.thumbnail-btn').forEach(b => {
+        b.classList.remove('border-[#1A8F89]', 'ring-2', 'ring-[#1A8F89]', 'ring-offset-2');
+        b.classList.add('border-[#E8E9ED]');
+      });
+      btn.classList.add('border-[#1A8F89]', 'ring-2', 'ring-[#1A8F89]', 'ring-offset-2');
+      btn.classList.remove('border-[#E8E9ED]');
+    });
+  });
+
+  // Qty stepper
+  const qtyDisplay = document.getElementById('qty-display');
+  const qtyMinus = document.getElementById('qty-minus');
+  const qtyPlus = document.getElementById('qty-plus');
+  function updateQty(newQty) {
+    if (newQty < 1 || newQty > 10) return;
+    qty = newQty;
+    if (qtyDisplay) qtyDisplay.textContent = String(qty);
+    if (qtyMinus) qtyMinus.disabled = qty <= 1 || !isGateOpen;
+    if (qtyPlus) qtyPlus.disabled = qty >= 10 || !isGateOpen;
+  }
+  qtyMinus?.addEventListener('click', () => updateQty(qty - 1));
+  qtyPlus?.addEventListener('click', () => updateQty(qty + 1));
+  updateQty(1);
+
+  // ─── WA Dialog ──────────────────────────────────────────────────────────────
+  const waDialog = document.getElementById('wa-dialog');
+  const waInput = document.getElementById('wa-input');
+  const waForm = document.getElementById('wa-form');
+  const waError = document.getElementById('wa-error');
+
+  // ─── Confirm Order Dialog ───────────────────────────────────────────────────
+  const confirmDialog = document.getElementById('confirm-order-dialog');
+  const confirmBtn = document.getElementById('confirm-order-btn');
+  const cancelConfirmBtn = document.getElementById('cancel-order-btn');
+
+  function showConfirmDialog() {
+    const notesSection = document.getElementById('confirm-notes-section');
+    const notesList = document.getElementById('confirm-notes-list');
+    if (notesSection && notesList) {
+      if (productNotes && productNotes.length > 0) {
+        notesList.innerHTML = productNotes.map(note => `<li>${esc(note)}</li>`).join('');
+        notesSection.classList.remove('hidden');
+      } else {
+        notesSection.classList.add('hidden');
+      }
+    }
+    confirmDialog?.showModal();
+  }
+
+  // Add to order — step 1: check WA, step 2: confirm dialog
+  const addBtn = document.getElementById('add-to-order-btn');
+  addBtn?.addEventListener('click', () => {
+    if (!isGateOpen) return;
+    if (!waNumber) {
+      // Show WA dialog first
+      waDialog?.showModal();
+    } else {
+      // WA already on file, go straight to confirm dialog
+      showConfirmDialog();
+    }
+  });
+
+  // WA form submit
+  waForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const inputVal = waInput?.value?.trim() ?? '';
+    if (!inputVal || inputVal.length < 5) {
+      if (waError) { waError.textContent = 'Masukkan nomor WhatsApp yang valid.'; waError.classList.remove('hidden'); }
+      return;
+    }
+    if (waError) waError.classList.add('hidden');
+
+    try {
+      const res = await fetch('/api/orders/me/whatsapp', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ whatsapp_number: inputVal }),
+      });
+      if (res.ok) {
+        waNumber = inputVal;
+        waDialog?.close();
+        // Now open confirm dialog
+        showConfirmDialog();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        if (waError) { waError.textContent = d.error || 'Gagal menyimpan nomor WA.'; waError.classList.remove('hidden'); }
+      }
+    } catch {
+      if (waError) { waError.textContent = 'Kesalahan jaringan. Coba lagi.'; waError.classList.remove('hidden'); }
+    }
+  });
+
+  // Cancel confirm dialog
+  cancelConfirmBtn?.addEventListener('click', () => {
+    confirmDialog?.close();
+  });
+
+  // Confirm order dialog: proceed to actually add order
+  confirmBtn?.addEventListener('click', async () => {
+    confirmDialog?.close();
+    addBtn.disabled = true;
+    addBtn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Menambahkan...';
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: productId, variant_id: selectedVariantId, qty }),
+      });
+      if (res.ok) {
+        window.showToast?.('Pesanan berhasil ditambahkan!', 'success');
+        addBtn.disabled = false;
+        addBtn.innerHTML = `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg> Tambah ke Pesanan`;
+        window.refreshOrderBadge?.();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        window.showToast?.(data.error || 'Gagal menambahkan pesanan. Coba lagi.', 'error');
+        addBtn.disabled = false;
+        addBtn.innerHTML = `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg> Tambah ke Pesanan`;
+      }
+    } catch {
+      window.showToast?.('Terjadi kesalahan jaringan. Coba lagi.', 'error');
+      addBtn.disabled = false;
+      addBtn.innerHTML = `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg> Tambah ke Pesanan`;
+    }
+  });
+</script>
+

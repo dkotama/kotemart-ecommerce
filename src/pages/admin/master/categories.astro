@@ -1,0 +1,147 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../layout.astro';
+import { env } from 'cloudflare:workers';
+import { getSettings } from '../../../lib/pricing';
+
+const user = Astro.locals.user;
+let settings = { product_categories: [] as string[] };
+
+try {
+  const db = (env as any).DB;
+  if (db) {
+    const s = await getSettings(db);
+    if (s) settings = s;
+  }
+} catch (err) {
+  console.error('Categories fetch error:', err);
+}
+---
+
+<AdminLayout title="Kelola Kategori" user={user} currentPath="/admin/master/categories">
+  <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <h2 class="text-[1.5rem] font-bold text-[#1A1D23] tracking-[-0.02em]">Kelola Kategori</h2>
+      <p class="text-[0.8125rem] text-[#5B606D]">Kelola kategori produk yang tersedia di katalog dan filter produk.</p>
+    </div>
+  </div>
+
+  <div class="max-w-[600px] bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-[24px] shadow-sm flex flex-col gap-4">
+    <div id="categories-chips" class="flex flex-wrap gap-2 min-h-[32px]">
+      {settings.product_categories.map(cat => (
+        <span
+          class="category-chip flex items-center gap-1.5 bg-[#F1F2F5] text-[#1A1D23] rounded-full px-3 py-1 text-[0.75rem] font-semibold"
+          data-value={cat}
+        >
+          {cat}
+          <button
+            type="button"
+            class="chip-remove text-[#5B606D] hover:text-[#D1453B] transition-colors ml-1.5 leading-none"
+            data-testid={`chip-remove-${cat}`}
+            aria-label={`Hapus kategori ${cat}`}
+          >✕</button>
+        </span>
+      ))}
+    </div>
+
+    <!-- Add input row -->
+    <div class="flex gap-2">
+      <input
+        type="text"
+        id="new-category-input"
+        data-testid="new-category-input"
+        placeholder="Nama kategori baru..."
+        class="flex-grow h-[36px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+      />
+      <button
+        id="btn-add-category"
+        data-testid="btn-add-category"
+        type="button"
+        class="h-[36px] px-4 bg-[#FFFFFF] border border-[#E8E9ED] hover:bg-[#F1F2F5] text-[#1A1D23] rounded-[6px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em] transition-all shrink-0"
+      >
+        + Tambah
+      </button>
+    </div>
+
+    <button
+      id="btn-save-categories"
+      data-testid="btn-save-categories"
+      type="button"
+      class="btn-primary-custom h-[40px] w-full"
+    >
+      Simpan Kategori
+    </button>
+  </div>
+</AdminLayout>
+
+<script>
+  const chipsContainer = document.getElementById('categories-chips')!;
+  const newCatInput = document.getElementById('new-category-input') as HTMLInputElement;
+  const btnAddCat = document.getElementById('btn-add-category')!;
+  const btnSaveCats = document.getElementById('btn-save-categories') as HTMLButtonElement;
+
+  function getCurrentCategories() {
+    return Array.from(chipsContainer.querySelectorAll('.category-chip'))
+      .map(el => el.getAttribute('data-value')?.trim())
+      .filter(Boolean) as string[];
+  }
+
+  function addChip(value: string) {
+    const span = document.createElement('span');
+    span.className = 'category-chip flex items-center gap-1.5 bg-[#F1F2F5] text-[#1A1D23] rounded-full px-3 py-1 text-[0.75rem] font-semibold';
+    span.setAttribute('data-value', value);
+    span.innerHTML = `${value}<button type="button" class="chip-remove text-[#5B606D] hover:text-[#D1453B] transition-colors leading-none ml-1.5" data-testid="chip-remove-${value}" aria-label="Hapus kategori ${value}">✕</button>`;
+    span.querySelector('.chip-remove')!.addEventListener('click', () => span.remove());
+    chipsContainer.appendChild(span);
+  }
+
+  chipsContainer.querySelectorAll<HTMLButtonElement>('.chip-remove').forEach(btn => {
+    btn.addEventListener('click', () => btn.closest('.category-chip')?.remove());
+  });
+
+  btnAddCat.addEventListener('click', () => {
+    const val = newCatInput.value.trim();
+    if (!val) {
+      window.showToast?.('Nama kategori tidak boleh kosong.', 'error');
+      return;
+    }
+    const existing = getCurrentCategories().map(c => c.toLowerCase());
+    if (existing.includes(val.toLowerCase())) {
+      window.showToast?.('Kategori sudah ada.', 'error');
+      return;
+    }
+    addChip(val);
+    newCatInput.value = '';
+  });
+
+  newCatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); btnAddCat.click(); }
+  });
+
+  btnSaveCats.addEventListener('click', async () => {
+    const cats = getCurrentCategories();
+    if (cats.length === 0) {
+      window.showToast?.('Minimal harus ada 1 kategori.', 'error');
+      return;
+    }
+    btnSaveCats.disabled = true;
+    try {
+      const apiClient = (window as any).apiClient || fetch;
+      const res = await apiClient('/api/admin/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ product_categories: cats }),
+      });
+      if (res.ok) {
+        window.showToast?.('Kategori berhasil disimpan!', 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        window.showToast?.(err.error || 'Gagal menyimpan kategori.', 'error');
+      }
+    } catch {
+      window.showToast?.('Terjadi kesalahan jaringan.', 'error');
+    } finally {
+      btnSaveCats.disabled = false;
+    }
+  });
+</script>

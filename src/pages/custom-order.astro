@@ -1,0 +1,405 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import type { Settings } from '../lib/types';
+import { env } from 'cloudflare:workers';
+import { getSettings } from '../lib/pricing';
+
+const user = Astro.locals.user;
+
+let isGateOpen = true;
+let telegramLink = 'https://t.me/kotemart';
+
+try {
+  const db = (env as any).DB;
+  if (db) {
+    const settingsRow = await getSettings(db);
+    if (settingsRow) {
+      isGateOpen = settingsRow.gate_status === 'Open';
+      telegramLink = settingsRow.telegram_link;
+    }
+  }
+} catch (err) {
+  console.error('Custom order settings fetch error:', err);
+}
+---
+
+<Layout title="Custom Order" user={user}>
+  <!-- Gate Closed Banner -->
+  {!isGateOpen && (
+    <div class="w-full bg-[#FDF3E7] border-l-[4px] border-l-[#D1453B] py-[12px] px-4 md:px-6 shadow-sm">
+      <div class="max-w-[1200px] mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <svg class="w-5 h-5 text-[#D1453B] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div>
+            <p class="text-[0.9375rem] font-semibold text-[#8B5E0A] leading-tight">Jastip sedang tutup</p>
+            <p class="text-[0.8125rem] text-[#8B5E0A] opacity-80 mt-0.5">Kami tidak menerima pesanan baru saat ini. Form Custom Order dinonaktifkan.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+
+  <!-- Marketplace Marquee -->
+  <div class="w-full overflow-hidden bg-[#FFFFFF] border-b border-[#E8E9ED] py-[16px] flex group relative marquee-container">
+    <div class="absolute left-0 top-0 bottom-0 w-[40px] bg-gradient-to-r from-[#FFFFFF] to-transparent z-10 pointer-events-none"></div>
+    <div class="absolute right-0 top-0 bottom-0 w-[40px] bg-gradient-to-l from-[#FFFFFF] to-transparent z-10 pointer-events-none"></div>
+    <div class="animate-marquee flex items-center gap-[64px] px-[32px] text-[#5B606D] opacity-60 hover:opacity-100 transition-opacity duration-300">
+      <!-- Amazon JP -->
+      <svg class="h-[20px] w-[100px] shrink-0" viewBox="0 0 100 30" fill="currentColor">
+        <text x="0" y="22" font-family="Arial, sans-serif" font-weight="bold" font-size="24" letter-spacing="-1">amazon</text>
+        <path d="M0,26 Q50,34 100,26 Q50,30 0,26" />
+      </svg>
+      <!-- Yahoo Japan -->
+      <svg class="h-[20px] w-[100px] shrink-0" viewBox="0 0 100 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="900" font-style="italic" font-size="26" letter-spacing="-2">Y!</text>
+        <text x="26" y="22" font-family="Arial, sans-serif" font-weight="bold" font-size="16">JAPAN</text>
+      </svg>
+      <!-- Rakuten -->
+      <svg class="h-[18px] w-[90px] shrink-0" viewBox="0 0 100 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="900" font-size="24" letter-spacing="-1">Rakuten</text>
+      </svg>
+      <!-- Mercari -->
+      <svg class="h-[20px] w-[90px] shrink-0" viewBox="0 0 100 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="800" font-size="24" letter-spacing="-1">mercari</text>
+      </svg>
+      <!-- ZOZOTOWN -->
+      <svg class="h-[16px] w-[120px] shrink-0" viewBox="0 0 120 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="900" font-size="22" letter-spacing="1">ZOZOTOWN</text>
+      </svg>
+      <!-- UNIQLO -->
+      <svg class="h-[18px] w-[80px] shrink-0" viewBox="0 0 80 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="bold" font-size="20" letter-spacing="0">UNIQLO</text>
+      </svg>
+      <!-- Surugaya -->
+      <svg class="h-[18px] w-[60px] shrink-0" viewBox="0 0 80 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="bold" font-size="20">駿河屋</text>
+      </svg>
+      <!-- Duplicate for seamless loop -->
+      <svg class="h-[20px] w-[100px] shrink-0" viewBox="0 0 100 30" fill="currentColor">
+        <text x="0" y="22" font-family="Arial, sans-serif" font-weight="bold" font-size="24" letter-spacing="-1">amazon</text>
+        <path d="M0,26 Q50,34 100,26 Q50,30 0,26" />
+      </svg>
+      <svg class="h-[20px] w-[100px] shrink-0" viewBox="0 0 100 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="900" font-style="italic" font-size="26" letter-spacing="-2">Y!</text>
+        <text x="26" y="22" font-family="Arial, sans-serif" font-weight="bold" font-size="16">JAPAN</text>
+      </svg>
+      <svg class="h-[18px] w-[90px] shrink-0" viewBox="0 0 100 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="900" font-size="24" letter-spacing="-1">Rakuten</text>
+      </svg>
+      <svg class="h-[20px] w-[90px] shrink-0" viewBox="0 0 100 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="800" font-size="24" letter-spacing="-1">mercari</text>
+      </svg>
+      <svg class="h-[16px] w-[120px] shrink-0" viewBox="0 0 120 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="900" font-size="22" letter-spacing="1">ZOZOTOWN</text>
+      </svg>
+      <svg class="h-[18px] w-[80px] shrink-0" viewBox="0 0 80 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="bold" font-size="20" letter-spacing="0">UNIQLO</text>
+      </svg>
+      <svg class="h-[18px] w-[60px] shrink-0" viewBox="0 0 80 30" fill="currentColor">
+        <text x="0" y="24" font-family="Arial, sans-serif" font-weight="bold" font-size="20">駿河屋</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="max-w-[1000px] mx-auto px-4 md:px-6 pt-[24px] md:pt-[40px] pb-24">
+
+    <!-- Back Link -->
+    <a
+      href="/catalog"
+      class="inline-flex items-center gap-2 text-[#5B606D] hover:text-[#1A8F89] transition-colors mb-[24px] group w-fit focus:outline-none focus:ring-2 focus:ring-[#1A8F89] rounded-[4px] no-underline"
+    >
+      <svg class="w-4 h-4 transition-transform group-hover:-translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+      </svg>
+      <span class="text-[0.8125rem] font-semibold leading-[1.3] uppercase tracking-[0.1em]">Kembali ke Katalog</span>
+    </a>
+
+    <!-- Page Header -->
+    <div class="mb-[32px] md:mb-[40px]">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="inline-block bg-[#E8E9ED] text-[#1A1D23] rounded-full px-[8px] py-[4px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em]">
+          Custom Order
+        </span>
+      </div>
+      <h1 class="text-[2.5rem] font-bold leading-[1.15] tracking-[-0.03em] text-[#1A1D23]">
+        Request Barang
+      </h1>
+      <p class="text-[1.125rem] leading-[1.6] text-[#5B606D] mt-2 max-w-2xl">
+        Tidak menemukan barang yang dicari di katalog? Masukkan detail barang atau link toko online Jepang di sini.
+      </p>
+    </div>
+
+    <!-- 2-column grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-[32px] items-start">
+
+      <!-- Left: Form (spans 2 cols) -->
+      <div class="lg:col-span-2">
+
+        <!-- Success Alert -->
+        <div
+          id="success-alert"
+          data-testid="custom-success-alert"
+          class="hidden mb-[24px] bg-[#D9EDE2] border border-[#2E8B57] rounded-[6px] p-[16px] flex items-start gap-3"
+          role="alert"
+        >
+          <svg class="w-5 h-5 text-[#1E6B3F] mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <h4 class="text-[0.9375rem] font-semibold text-[#1E6B3F]">Request Berhasil Dikirim</h4>
+            <p class="text-[0.8125rem] text-[#1E6B3F] mt-1 opacity-90">Pesanan custom Anda telah masuk sebagai Draft. Silakan cek halaman "Pesanan Saya" untuk melihat update estimasi harga dari admin.</p>
+          </div>
+        </div>
+
+        <form
+          id="custom-order-form"
+          class={`bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-[24px] shadow-[0_1px_3px_rgba(26,29,35,0.06),0_1px_2px_rgba(26,29,35,0.04)] ${!isGateOpen ? 'opacity-60 pointer-events-none' : ''}`}
+          novalidate
+        >
+          <div class="flex flex-col gap-[20px]">
+
+            <!-- Product URL -->
+            <div class="flex flex-col gap-2">
+              <label for="url" class="text-[0.9375rem] font-semibold text-[#1A1D23]">
+                Link Produk (Opsional tapi disarankan)
+              </label>
+              <input
+                type="url"
+                id="url"
+                name="url"
+                data-testid="custom-url-input"
+                disabled={!isGateOpen}
+                placeholder="https://www.amazon.co.jp/..."
+                class="w-full h-[44px] px-[12px] bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] text-[0.9375rem] text-[#1A1D23] placeholder-[#5B606D] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] focus:border-[#1A8F89] transition-shadow disabled:bg-[#F1F2F5] disabled:text-[#5B606D]"
+              />
+              <p class="text-[0.75rem] text-[#5B606D]">Masukkan link dari Amazon JP, Yahoo Auction, Rakuten, dll.</p>
+            </div>
+
+            <!-- Product Name/Desc -->
+            <div class="flex flex-col gap-2">
+              <label for="name" class="text-[0.9375rem] font-semibold text-[#1A1D23]">
+                Nama / Detail Barang <span class="text-[#D1453B]">*</span>
+              </label>
+              <textarea
+                id="name"
+                name="name"
+                data-testid="custom-name-input"
+                required
+                disabled={!isGateOpen}
+                placeholder="Contoh: UNIQLO U AIRism Oversized T-Shirt, Warna Hitam, Size L"
+                class="w-full min-h-[100px] p-[12px] bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] text-[0.9375rem] text-[#1A1D23] placeholder-[#5B606D] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] focus:border-[#1A8F89] transition-shadow resize-y disabled:bg-[#F1F2F5] disabled:text-[#5B606D]"
+              ></textarea>
+            </div>
+
+            <!-- Quantity -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-[20px] items-end">
+              <div class="flex flex-col gap-2">
+                <label class="text-[0.9375rem] font-semibold text-[#1A1D23]">Kuantitas</label>
+                <div class="flex items-center h-[44px] bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] overflow-hidden w-[140px]">
+                  <button
+                    type="button"
+                    id="form-qty-minus"
+                    disabled={!isGateOpen}
+                    class="w-[44px] h-full flex items-center justify-center text-[#5B606D] hover:bg-[#F1F2F5] hover:text-[#1A1D23] disabled:opacity-50 disabled:hover:bg-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#1A8F89]"
+                  >
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M20 12H4" /></svg>
+                  </button>
+                  <input
+                    type="number"
+                    id="form-qty-input"
+                    name="qty"
+                    data-testid="custom-qty-input"
+                    min="1"
+                    max="20"
+                    value="1"
+                    class="flex-1 w-full h-[44px] text-center font-mono text-[0.9375rem] font-semibold text-[#1A1D23] border-l border-r border-[#E8E9ED] bg-transparent focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    id="form-qty-plus"
+                    disabled={!isGateOpen}
+                    class="w-[44px] h-full flex items-center justify-center text-[#5B606D] hover:bg-[#F1F2F5] hover:text-[#1A1D23] disabled:opacity-50 disabled:hover:bg-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#1A8F89]"
+                  >
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Notes -->
+            <div class="flex flex-col gap-2">
+              <label for="notes" class="text-[0.9375rem] font-semibold text-[#1A1D23]">
+                Catatan Tambahan (Opsional)
+              </label>
+              <input
+                type="text"
+                id="notes"
+                name="notes"
+                data-testid="custom-desc-input"
+                disabled={!isGateOpen}
+                placeholder="Misal: Boleh second kalau yang baru kosong"
+                class="w-full h-[44px] px-[12px] bg-[#FFFFFF] border border-[#E8E9ED] rounded-[6px] text-[0.9375rem] text-[#1A1D23] placeholder-[#5B606D] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] focus:border-[#1A8F89] transition-shadow disabled:bg-[#F1F2F5] disabled:text-[#5B606D]"
+              />
+            </div>
+
+            <!-- Submit -->
+            <div class="pt-[16px] border-t border-[#E8E9ED] mt-[8px]">
+              <button
+                type="submit"
+                id="submit-btn"
+                data-testid="btn-custom-submit"
+                disabled={!isGateOpen}
+                class={`w-full sm:w-auto min-w-[200px] h-[44px] px-[24px] rounded-[6px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em] transition-all focus:ring-2 focus:ring-[#1A8F89] focus:ring-offset-2 flex items-center justify-center gap-2 ${isGateOpen ? 'bg-[#0F726E] hover:bg-[#0A5D59] text-[#FFFFFF]' : 'bg-[#F1F2F5] text-[#5B606D] cursor-not-allowed'}`}
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                {isGateOpen ? 'Kirim Request' : 'Jastip Ditutup'}
+              </button>
+            </div>
+
+          </div>
+        </form>
+      </div>
+
+      <!-- Right: Cara Kerja -->
+      <div class="lg:col-span-1">
+        <div class="bg-[#F1F2F5] border border-[#E8E9ED] rounded-[10px] p-[24px] sticky top-[100px]">
+          <h3 class="text-[1.125rem] font-semibold leading-[1.3] tracking-[-0.01em] text-[#1A1D23] mb-[16px]">
+            Cara Kerja Custom Order
+          </h3>
+
+          <div class="flex flex-col gap-[16px]">
+            <div class="flex items-start gap-3">
+              <div class="w-[24px] h-[24px] shrink-0 rounded-full bg-[#1A1D23] text-[#FFFFFF] flex items-center justify-center font-mono text-[0.75rem] font-bold mt-0.5">1</div>
+              <div>
+                <h4 class="text-[0.9375rem] font-semibold text-[#1A1D23]">Isi Form Request</h4>
+                <p class="text-[0.8125rem] text-[#5B606D] mt-1">Berikan detail atau link produk selengkap mungkin agar admin mudah mencarinya.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <div class="w-[24px] h-[24px] shrink-0 rounded-full bg-[#E8E9ED] text-[#1A1D23] flex items-center justify-center font-mono text-[0.75rem] font-bold mt-0.5">2</div>
+              <div>
+                <h4 class="text-[0.9375rem] font-semibold text-[#1A1D23]">Admin Mengecek Harga</h4>
+                <p class="text-[0.8125rem] text-[#5B606D] mt-1">Request Anda akan berstatus Draft. Admin akan mengecek ketersediaan dan memasukkan estimasi harga.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <div class="w-[24px] h-[24px] shrink-0 rounded-full bg-[#E8E9ED] text-[#1A1D23] flex items-center justify-center font-mono text-[0.75rem] font-bold mt-0.5">3</div>
+              <div>
+                <h4 class="text-[0.9375rem] font-semibold text-[#1A1D23]">Muncul di Pesanan Saya</h4>
+                <p class="text-[0.8125rem] text-[#5B606D] mt-1">Estimasi IDR akan muncul di halaman Pesanan Saya. Setelah dibeli, harga final akan dikonfirmasi.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-[24px] pt-[20px] border-t border-[#E8E9ED]">
+            <p class="text-[0.8125rem] text-[#5B606D] flex items-start gap-2">
+              <svg class="w-4 h-4 text-[#D4890B] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Admin berhak menolak pesanan custom yang tidak memungkinkan untuk dibawa (ukuran terlalu besar, barang terlarang, dsb).
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</Layout>
+
+<script define:vars={{ isGateOpen }}>
+  let qty = 1;
+ 
+  const qtyInput = document.getElementById('form-qty-input');
+  const qtyMinus = document.getElementById('form-qty-minus');
+  const qtyPlus = document.getElementById('form-qty-plus');
+ 
+  function updateQty(newQty) {
+    if (newQty < 1 || newQty > 20) return;
+    qty = newQty;
+    if (qtyInput) qtyInput.value = String(qty);
+    if (qtyMinus) qtyMinus.disabled = qty <= 1 || !isGateOpen;
+    if (qtyPlus) qtyPlus.disabled = qty >= 20 || !isGateOpen;
+  }
+ 
+  qtyInput?.addEventListener('input', () => {
+    const val = parseInt(qtyInput.value, 10);
+    if (!isNaN(val) && val >= 1 && val <= 20) {
+      qty = val;
+    }
+  });
+
+  qtyInput?.addEventListener('change', () => {
+    const val = parseInt(qtyInput.value, 10);
+    if (isNaN(val) || val < 1) updateQty(1);
+    else if (val > 20) updateQty(20);
+    else updateQty(val);
+  });
+ 
+  qtyMinus?.addEventListener('click', () => updateQty(qty - 1));
+  qtyPlus?.addEventListener('click', () => updateQty(qty + 1));
+
+  // Form submit
+  const form = document.getElementById('custom-order-form');
+  const submitBtn = document.getElementById('submit-btn');
+  const successAlert = document.getElementById('success-alert');
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!isGateOpen || !form) return;
+
+    const nameEl = document.getElementById('name');
+    const urlEl = document.getElementById('url');
+    const notesEl = document.getElementById('notes');
+
+    if (!nameEl?.value?.trim()) {
+      window.showToast?.('Nama / Detail Barang wajib diisi.', 'error');
+      nameEl?.focus();
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Mengirim...`;
+
+    try {
+      const apiClient = window.apiClient || fetch;
+      const res = await apiClient('/api/orders/custom', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: nameEl?.value?.trim(),
+          reference_url: urlEl?.value?.trim() || null,
+          qty,
+          notes: notesEl?.value?.trim() || null,
+        }),
+      });
+
+      console.log('API response status:', res.status, 'ok:', res.ok);
+      if (res.ok) {
+        console.log('Success alert element:', successAlert);
+        if (successAlert) {
+          successAlert.classList.remove('hidden');
+          console.log('Successfully removed hidden class. Classes:', successAlert.className);
+        } else {
+          console.error('Success alert element is null!');
+        }
+        form.reset();
+        updateQty(1);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        window.showToast?.(data.error || 'Gagal mengirim request. Coba lagi.', 'error');
+      }
+    } catch {
+      window.showToast?.('Terjadi kesalahan jaringan. Coba lagi.', 'error');
+    } finally {
+      submitBtn.disabled = !isGateOpen;
+      submitBtn.innerHTML = `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg> ${isGateOpen ? 'Kirim Request' : 'Jastip Ditutup'}`;
+    }
+  });
+</script>

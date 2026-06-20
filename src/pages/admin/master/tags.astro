@@ -1,0 +1,166 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../layout.astro';
+import { env } from 'cloudflare:workers';
+
+const user = Astro.locals.user;
+let tags: { id: string; name: string; created_at: string }[] = [];
+
+try {
+  const db = (env as any).DB;
+  if (db) {
+    const result = await db.prepare(`SELECT * FROM tags ORDER BY name ASC`).all();
+    tags = result.results || [];
+  }
+} catch (err) {
+  console.error('Tags fetch error:', err);
+}
+---
+
+<AdminLayout title="Kelola Tag" user={user} currentPath="/admin/master/tags">
+  <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <h2 class="text-[1.5rem] font-bold text-[#1A1D23] tracking-[-0.02em]">Kelola Tag</h2>
+      <p class="text-[0.8125rem] text-[#5B606D]">Kelola tag global untuk filter katalog produk.</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Add Tag Form -->
+    <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-[24px] shadow-sm h-fit">
+      <h3 class="font-bold text-[1.125rem] text-[#1A1D23] leading-tight mb-4" id="form-title">Tambah Tag</h3>
+      <form id="tag-form" class="flex flex-col gap-4">
+        <input type="hidden" id="tag-id" />
+        <div class="flex flex-col gap-1">
+          <label for="tag-name" class="text-[0.8125rem] font-semibold text-[#1A1D23]">Nama Tag <span class="text-[#D1453B]">*</span></label>
+          <input
+            type="text"
+            id="tag-name"
+            required
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="Contoh: stationery"
+          />
+        </div>
+        <div class="flex gap-2 justify-end mt-2">
+          <button type="button" id="btn-cancel" class="btn btn-ghost text-xs text-[#5B606D] rounded-[6px] hidden">Batal</button>
+          <button type="submit" id="btn-save" class="btn bg-[#0F726E] hover:bg-[#0A5D59] text-white text-xs rounded-[6px] h-[40px] px-4 font-semibold uppercase tracking-[0.05em] transition-all">Simpan</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Tags Table -->
+    <div class="lg:col-span-2 bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] overflow-hidden shadow-sm">
+      <div class="overflow-x-auto w-full">
+        <table class="w-full text-[0.875rem] border-collapse">
+          <thead>
+            <tr class="bg-[#F9F9F7] border-b border-[#E8E9ED] text-left text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">
+              <th class="py-3 px-4">Nama Tag</th>
+              <th class="py-3 px-4 text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tags.length === 0 ? (
+              <tr>
+                <td colspan="2" class="py-12 text-center text-[#5B606D]">
+                  Belum ada tag. Gunakan form di sebelah kiri untuk menambah tag.
+                </td>
+              </tr>
+            ) : (
+              tags.map((tag) => (
+                <tr class="border-b border-[#E8E9ED] hover:bg-[#F9F9F7]/50 transition-colors tag-row" data-id={tag.id} data-name={tag.name}>
+                  <td class="py-3 px-4 font-semibold text-[#1A1D23]">#{tag.name}</td>
+                  <td class="py-3 px-4 text-right space-x-3">
+                    <button class="text-[#1A8F89] hover:underline font-semibold text-[0.8125rem] btn-edit" data-id={tag.id} data-name={tag.name}>Ubah</button>
+                    <button class="text-[#D1453B] hover:underline font-semibold text-[0.8125rem] btn-delete" data-id={tag.id}>Hapus</button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</AdminLayout>
+
+<script>
+  const form = document.getElementById('tag-form') as HTMLFormElement;
+  const formTitle = document.getElementById('form-title')!;
+  const idInput = document.getElementById('tag-id') as HTMLInputElement;
+  const nameInput = document.getElementById('tag-name') as HTMLInputElement;
+  const cancelBtn = document.getElementById('btn-cancel') as HTMLButtonElement;
+  const saveBtn = document.getElementById('btn-save') as HTMLButtonElement;
+
+  function resetForm() {
+    form.reset();
+    idInput.value = '';
+    formTitle.textContent = 'Tambah Tag';
+    cancelBtn.classList.add('hidden');
+  }
+
+  cancelBtn.addEventListener('click', resetForm);
+
+  document.querySelectorAll('.btn-edit').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const id = target.dataset.id!;
+      const name = target.dataset.name!;
+
+      idInput.value = id;
+      nameInput.value = name;
+      formTitle.textContent = 'Ubah Tag';
+      cancelBtn.classList.remove('hidden');
+      nameInput.focus();
+    });
+  });
+
+  document.querySelectorAll('.btn-delete').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const id = target.dataset.id!;
+      if (!confirm('Apakah Anda yakin ingin menghapus tag ini? Keterkaitan tag pada produk akan dihapus.')) return;
+
+      try {
+        const apiClient = (window as any).apiClient || fetch;
+        const res = await apiClient(`/api/admin/tags/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          window.showToast?.('Gagal menghapus tag.', 'error');
+        }
+      } catch {
+        window.showToast?.('Kesalahan jaringan.', 'error');
+      }
+    });
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = idInput.value;
+    const name = nameInput.value.trim().replace(/^#/, '');
+    if (!name) return;
+
+    saveBtn.disabled = true;
+    try {
+      const apiClient = (window as any).apiClient || fetch;
+      const res = await apiClient('/api/admin/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id || undefined, name }),
+      });
+
+      if (res.ok) {
+        window.showToast?.(id ? 'Tag berhasil diubah!' : 'Tag berhasil dibuat!', 'success');
+        window.location.reload();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        window.showToast?.(data.error || 'Gagal menyimpan tag.', 'error');
+      }
+    } catch {
+      window.showToast?.('Kesalahan jaringan.', 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+</script>

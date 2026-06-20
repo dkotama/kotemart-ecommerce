@@ -1,0 +1,60 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Kebijakan Privasi" showNav={false}>
+  <div class="max-w-[720px] mx-auto px-4 py-16">
+    <a href="/login" class="inline-flex items-center gap-2 text-sm text-[#1A8F89] no-underline hover:underline mb-8">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+      </svg>
+      Kembali
+    </a>
+    <h1 class="text-3xl font-bold mb-2">Kebijakan Privasi</h1>
+    <p class="text-sm text-[#5B606D] mb-10">Terakhir diperbarui: 18 Juni 2026</p>
+
+    <div class="prose prose-slate max-w-none space-y-6 text-[#1A1D23] leading-relaxed">
+      <section>
+        <h2 class="text-xl font-semibold mb-3">1. Informasi yang Kami Kumpulkan</h2>
+        <p>Kotemart mengumpulkan informasi berikut melalui autentikasi Google OAuth:</p>
+        <ul class="list-disc pl-5 space-y-1 mt-2">
+          <li>Nama lengkap</li>
+          <li>Alamat email</li>
+          <li>Foto profil (avatar)</li>
+        </ul>
+        <p class="mt-2">Kami juga menyimpan data yang Anda berikan saat menggunakan layanan: pesanan katalog, permintaan custom order, dan preferensi belanja.</p>
+      </section>
+
+      <section>
+        <h2 class="text-xl font-semibold mb-3">2. Penggunaan Informasi</h2>
+        <p>Data Anda digunakan secara eksklusif untuk:</p>
+        <ul class="list-disc pl-5 space-y-1 mt-2">
+          <li>Mengidentifikasi akun Anda di platform</li>
+          <li>Memproses dan melacak pesanan jastip</li>
+          <li>Komunikasi terkait status pesanan</li>
+          <li>Keamanan dan pencegahan penyalahgunaan</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 class="text-xl font-semibold mb-3">3. Penyimpanan Data</h2>
+        <p>Data disimpan di Cloudflare D1 (database) dan Cloudflare R2 (gambar). Session cookie berlaku selama 24 jam. Data pesanan disimpan selama diperlukan untuk keperluan operasional dan pencatatan.</p>
+      </section>
+
+      <section>
+        <h2 class="text-xl font-semibold mb-3">4. Pihak Ketiga</h2>
+        <p>Kami tidak menjual, membagikan, atau mentransfer data pribadi Anda kepada pihak ketiga. Autentikasi dilakukan melalui Google OAuth2; Google dapat memproses data sesuai kebijakan privasi mereka sendiri.</p>
+      </section>
+
+      <section>
+        <h2 class="text-xl font-semibold mb-3">5. Hak Anda</h2>
+        <p>Anda dapat meminta penghapusan data Anda kapan saja dengan menghubungi admin Kotemart. Anda juga dapat mencabut akses Google melalui pengaturan akun Google Anda.</p>
+      </section>
+
+      <section>
+        <h2 class="text-xl font-semibold mb-3">6. Kontak</h2>
+        <p>Pertanyaan terkait privasi: hubungi admin melalui platform Kotemart atau email yang tercantum di halaman login Anda.</p>
+      </section>
+    </div>
+  </div>
+</Layout>

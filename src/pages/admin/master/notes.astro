@@ -1,0 +1,143 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../layout.astro';
+import { env } from 'cloudflare:workers';
+import { getSettings } from '../../../lib/pricing';
+
+const user = Astro.locals.user;
+let settings = { note_templates: [] as string[] };
+
+try {
+  const db = (env as any).DB;
+  if (db) {
+    const s = await getSettings(db);
+    if (s) settings.note_templates = s.note_templates || [];
+  }
+} catch (err) {
+  console.error('Note templates fetch error:', err);
+}
+---
+
+<AdminLayout title="Template Catatan" user={user} currentPath="/admin/master/notes">
+  <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <h2 class="text-[1.5rem] font-bold text-[#1A1D23] tracking-[-0.02em]">Template Catatan</h2>
+      <p class="text-[0.8125rem] text-[#5B606D]">Kelola template catatan produk yang tersedia bagi admin.</p>
+    </div>
+  </div>
+
+  <div class="max-w-[600px] bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-[24px] shadow-sm flex flex-col gap-4">
+    <div id="notes-chips" class="flex flex-wrap gap-2 min-h-[32px]">
+      {settings.note_templates.map(note => (
+        <span
+          class="note-chip flex items-center gap-1.5 bg-[#F1F2F5] text-[#1A1D23] rounded-full px-3 py-1 text-[0.75rem] font-semibold"
+          data-value={note}
+        >
+          {note}
+          <button
+            type="button"
+            class="chip-remove text-[#5B606D] hover:text-[#D1453B] transition-colors ml-1.5 leading-none"
+            data-testid={`chip-remove-${note}`}
+            aria-label={`Hapus catatan ${note}`}
+          >✕</button>
+        </span>
+      ))}
+    </div>
+
+    <!-- Add input row -->
+    <div class="flex gap-2">
+      <input
+        type="text"
+        id="new-note-input"
+        data-testid="new-note-input"
+        placeholder="Catatan baru..."
+        class="flex-grow h-[36px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+      />
+      <button
+        id="btn-add-note"
+        data-testid="btn-add-note"
+        type="button"
+        class="h-[36px] px-4 bg-[#FFFFFF] border border-[#E8E9ED] hover:bg-[#F1F2F5] text-[#1A1D23] rounded-[6px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em] transition-all shrink-0"
+      >
+        + Tambah
+      </button>
+    </div>
+
+    <button
+      id="btn-save-notes"
+      data-testid="btn-save-notes"
+      type="button"
+      class="btn-primary-custom h-[40px] w-full"
+    >
+      Simpan Template
+    </button>
+  </div>
+</AdminLayout>
+
+<script>
+  const chipsContainer = document.getElementById('notes-chips')!;
+  const newNoteInput = document.getElementById('new-note-input') as HTMLInputElement;
+  const btnAddNote = document.getElementById('btn-add-note')!;
+  const btnSaveNotes = document.getElementById('btn-save-notes') as HTMLButtonElement;
+
+  function getCurrentNotes() {
+    return Array.from(chipsContainer.querySelectorAll('.note-chip'))
+      .map(el => el.getAttribute('data-value')?.trim())
+      .filter(Boolean) as string[];
+  }
+
+  function addChip(value: string) {
+    const span = document.createElement('span');
+    span.className = 'note-chip flex items-center gap-1.5 bg-[#F1F2F5] text-[#1A1D23] rounded-full px-3 py-1 text-[0.75rem] font-semibold';
+    span.setAttribute('data-value', value);
+    span.innerHTML = `${value}<button type="button" class="chip-remove text-[#5B606D] hover:text-[#D1453B] transition-colors leading-none ml-1.5" data-testid="chip-remove-${value}" aria-label="Hapus catatan ${value}">✕</button>`;
+    span.querySelector('.chip-remove')!.addEventListener('click', () => span.remove());
+    chipsContainer.appendChild(span);
+  }
+
+  chipsContainer.querySelectorAll<HTMLButtonElement>('.chip-remove').forEach(btn => {
+    btn.addEventListener('click', () => btn.closest('.note-chip')?.remove());
+  });
+
+  btnAddNote.addEventListener('click', () => {
+    const val = newNoteInput.value.trim();
+    if (!val) {
+      window.showToast?.('Template catatan tidak boleh kosong.', 'error');
+      return;
+    }
+    const existing = getCurrentNotes().map(n => n.toLowerCase());
+    if (existing.includes(val.toLowerCase())) {
+      window.showToast?.('Template catatan sudah ada.', 'error');
+      return;
+    }
+    addChip(val);
+    newNoteInput.value = '';
+  });
+
+  newNoteInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); btnAddNote.click(); }
+  });
+
+  btnSaveNotes.addEventListener('click', async () => {
+    const notes = getCurrentNotes();
+    btnSaveNotes.disabled = true;
+    try {
+      const apiClient = (window as any).apiClient || fetch;
+      const res = await apiClient('/api/admin/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ note_templates: notes }),
+      });
+      if (res.ok) {
+        window.showToast?.('Template catatan berhasil disimpan!', 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        window.showToast?.(err.error || 'Gagal menyimpan template catatan.', 'error');
+      }
+    } catch {
+      window.showToast?.('Terjadi kesalahan jaringan.', 'error');
+    } finally {
+      btnSaveNotes.disabled = false;
+    }
+  });
+</script>

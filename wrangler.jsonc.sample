@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "kotemart-jastip",
+  "account_id": "YOUR_CLOUDFLARE_ACCOUNT_ID",
+  "compatibility_date": "2026-06-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@astrojs/cloudflare/entrypoints/server",
+  "routes": [
+    { "pattern": "jastip.dkotama.com", "custom_domain": true }
+  ],
+  "assets": {
+    "directory": "./dist/client"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "YOUR_DATABASE_NAME",
+      "database_id": "YOUR_DATABASE_ID",
+      "migrations_dir": "db/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "YOUR_R2_BUCKET_NAME"
+    }
+  ],
+  "vars": {
+    "APP_BASE_URL": "https://your-domain.com"
+  }
+}

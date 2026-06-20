@@ -1,0 +1,50 @@
+---
+export const prerender = false;
+import '../styles/global.css';
+---
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Akun Dinonaktifkan — Kotemart Jastip</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+</head>
+<body class="min-h-screen bg-[#F9F9F7] flex flex-col justify-center items-center p-4 text-[#1A1D23]">
+
+  <div class="w-full max-w-[400px] text-center">
+    <div class="mb-8">
+      <div class="w-[64px] h-[64px] mx-auto mb-5 rounded-full bg-[#FDF3E7] flex items-center justify-center">
+        <svg class="w-8 h-8 text-[#D4890B]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+        </svg>
+      </div>
+      <h1 class="text-[1.75rem] font-semibold leading-[1.25] tracking-[-0.02em] text-[#1A1D23] mb-3">
+        Akun Dinonaktifkan
+      </h1>
+      <p class="text-[0.9375rem] leading-[1.55] text-[#5B606D]">
+        Akun Google kamu dikenali, tetapi aksesnya telah dinonaktifkan oleh admin.
+        Hubungi admin Kotemart jika kamu merasa ini kesalahan.
+      </p>
+    </div>
+
+    <a
+      href="/login"
+      class="inline-flex items-center justify-center h-[44px] px-8 bg-[#F1F2F5] border border-[#E8E9ED] hover:bg-[#FFFFFF] text-[#1A1D23] rounded-[6px] text-[0.6875rem] font-semibold uppercase tracking-[0.1em] no-underline transition-colors"
+    >
+      Kembali ke Login
+    </a>
+
+    <p class="mt-10 text-[0.75rem] text-[#A5A9B2]">&copy; 2026 Kotemart Jastip</p>
+  </div>
+
+</body>
+</html>

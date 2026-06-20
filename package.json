@@ -1,0 +1,38 @@
+{
+  "name": "kotemart-jastip",
+  "type": "module",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "wrangler pages dev --ip 0.0.0.0 --d1 DB=local-db --r2 BUCKET=local-bucket -- astro dev --host 0.0.0.0",
+    "dev:astro": "astro dev --host 0.0.0.0",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "generate-types": "wrangler types",
+    "db:schema": "wrangler d1 execute DB --local --file=db/schema.sql",
+    "db:seed": "wrangler d1 execute DB --local --file=db/seed.sql",
+    "db:reset": "npm run db:schema && npm run db:seed",
+    "test": "playwright test",
+    "test:e2e": "playwright test --project=chromium"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^13.7.0",
+    "@hono/zod-validator": "^0.5.0",
+    "astro": "^6.4.7",
+    "daisyui": "^5.0.0",
+    "hono": "^4.8.0",
+    "tailwindcss": "^4.1.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "wrangler": "^4.100.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  },
+  "overrides": {
+    "vite": "^7"
+  }
+}

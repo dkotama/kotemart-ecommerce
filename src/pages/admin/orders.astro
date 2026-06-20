@@ -1,0 +1,647 @@
+---
+export const prerender = false;
+
+import AdminLayout from './layout.astro';
+import { env } from 'cloudflare:workers';
+import type { OrderRow } from '../../lib/types';
+
+const user = Astro.locals.user;
+
+let orders: OrderRow[] = [];
+
+try {
+  const db = (env as any).DB;
+  if (db) {
+    const result = await db.prepare(`
+      SELECT o.id, o.user_id, o.product_id, o.type, o.name, o.description, o.reference_url, o.qty,
+             o.status, o.price_jpy, o.jpy_rate_snapshot, o.fee_pct_snapshot,
+             o.price_idr_estimate, o.price_idr_final, o.manual_idr_override,
+             o.bought_price_jpy, o.custom_fee_idr, o.down_payment_idr, o.paid_amount_idr,
+             o.notes, o.cancellation_reason, o.cancelled_at, o.settled_at, o.created_at,
+             u.name as buyer_name, u.email as buyer_email, u.whatsapp_number as buyer_whatsapp,
+             v.product_url as buy_url
+      FROM orders o
+      JOIN users u ON o.user_id = u.id
+      LEFT JOIN product_variants v ON v.id = o.variant_id
+      ORDER BY o.created_at DESC
+    `).all<OrderRow>();
+    if (result?.results) {
+      orders = result.results;
+    }
+  }
+} catch (err) {
+  console.error('Admin orders fetch error:', err);
+}
+---
+
+<AdminLayout title="Pesanan" user={user} currentPath="/admin/orders">
+  <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <h2 class="text-[1.5rem] font-bold text-[#1A1D23] tracking-[-0.02em]">Daftar Pesanan</h2>
+      <p class="text-[0.8125rem] text-[#5B606D]">Kelola status pemesanan, konfirmasi harga final, dan pembatalan jastip.</p>
+    </div>
+  </div>
+
+  <!-- Status Filter Pills -->
+  <div class="flex flex-wrap gap-2 mb-6" id="status-filters">
+    <button class="px-3 py-1.5 rounded-full text-[0.6875rem] font-semibold uppercase tracking-[0.1em] bg-[#1A1D23] text-[#FFFFFF] filter-pill" data-status="All">
+      Semua
+    </button>
+    <button class="px-3 py-1.5 rounded-full text-[0.6875rem] font-semibold uppercase tracking-[0.1em] bg-[#E8E9ED] text-[#5B606D] hover:bg-[#D5EDEB] hover:text-[#0F726E] filter-pill" data-status="Draft">
+      Draft
+    </button>
+    <button class="px-3 py-1.5 rounded-full text-[0.6875rem] font-semibold uppercase tracking-[0.1em] bg-[#E8E9ED] text-[#5B606D] hover:bg-[#D5EDEB] hover:text-[#0F726E] filter-pill" data-status="Pending">
+      Pending
+    </button>
+    <button class="px-3 py-1.5 rounded-full text-[0.6875rem] font-semibold uppercase tracking-[0.1em] bg-[#E8E9ED] text-[#5B606D] hover:bg-[#D5EDEB] hover:text-[#0F726E] filter-pill" data-status="Bought">
+      Bought
+    </button>
+    <button class="px-3 py-1.5 rounded-full text-[0.6875rem] font-semibold uppercase tracking-[0.1em] bg-[#E8E9ED] text-[#5B606D] hover:bg-[#D5EDEB] hover:text-[#0F726E] filter-pill" data-status="Cancelled">
+      Batal
+    </button>
+  </div>
+
+  <!-- Table Container -->
+  <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] overflow-hidden shadow-sm">
+    <div class="overflow-x-auto w-full">
+      <table class="w-full text-[0.875rem] border-collapse" data-testid="orders-table">
+        <thead>
+          <tr class="bg-[#F9F9F7] border-b border-[#E8E9ED] text-left text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">
+            <th class="py-3 px-4">Order ID</th>
+            <th class="py-3 px-4">Pembeli</th>
+            <th class="py-3 px-4">Produk / Nama</th>
+            <th class="py-3 px-4">Type</th>
+            <th class="py-3 px-4 text-center">Qty</th>
+            <th class="py-3 px-4 text-right">Harga JPY</th>
+            <th class="py-3 px-4 text-center">DP</th>
+            <th class="py-3 px-4 text-right">Est./Final IDR</th>
+            <th class="py-3 px-4 text-right">Beli (¥)</th>
+            <th class="py-3 px-4 text-center">Status</th>
+            <th class="py-3 px-4 text-right">Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="orders-tbody">
+          {orders.map((order) => {
+            const jpyVal = order.price_jpy ? `¥ ${order.price_jpy.toLocaleString('ja-JP')}` : '—';
+            const displayEstIdr = order.manual_idr_override ?? order.price_idr_estimate;
+            const idrVal = displayEstIdr ? `Rp ${displayEstIdr.toLocaleString('id-ID')}` : '—';
+            const isOverridden = order.manual_idr_override != null;
+            const finalIdr = order.price_idr_final ? `Rp ${order.price_idr_final.toLocaleString('id-ID')}` : null;
+            const boughtJpy = order.bought_price_jpy ? `¥ ${order.bought_price_jpy.toLocaleString('ja-JP')}` : '—';
+            return (
+              <tr
+                class="border-b border-[#E8E9ED] hover:bg-[#F9F9F7]/50 transition-colors order-row"
+                data-testid="order-row"
+                data-status={order.status}
+                data-id={order.id}
+                data-type={order.type}
+                data-jpy={order.price_jpy ?? ''}
+                data-est-idr={order.price_idr_estimate ?? ''}
+                data-override-idr={order.manual_idr_override ?? ''}
+                data-rate={order.jpy_rate_snapshot ?? ''}
+                data-fee={order.fee_pct_snapshot ?? ''}
+                data-final-idr={order.price_idr_final ?? ''}
+                data-bought-jpy={order.bought_price_jpy ?? ''}
+                data-custom-fee={order.custom_fee_idr ?? ''}
+                data-dp-target={order.down_payment_idr ?? ''}
+                data-dp-paid={order.paid_amount_idr ?? 0}
+                data-buyer-wa={order.buyer_whatsapp ?? ''}
+              >
+                <td class="py-4 px-4 font-mono font-semibold text-[#1A1D23]">{order.id}</td>
+                <td class="py-4 px-4">
+                  <div class="font-semibold text-[#1A1D23]">{order.buyer_name}</div>
+                  <div class="text-[0.75rem] text-[#5B606D]">{order.buyer_email}</div>
+                  {order.buyer_whatsapp && (
+                    <a
+                      href={`https://wa.me/${order.buyer_whatsapp.replace(/[^0-9]/g, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-[0.7rem] text-[#25D366] font-semibold hover:underline flex items-center gap-1 mt-0.5"
+                    >
+                      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                      {order.buyer_whatsapp}
+                    </a>
+                  )}
+                </td>
+                <td class="py-4 px-4 max-w-[200px] truncate">
+                  <div class="font-semibold text-[#1A1D23]">{order.name}</div>
+                  <div class="flex gap-2 mt-0.5">
+                    {order.reference_url && (
+                      <a href={order.reference_url} target="_blank" class="text-[0.75rem] text-[#1A8F89] hover:underline" rel="noreferrer">
+                        Link Produk
+                      </a>
+                    )}
+                    {order.buy_url && (
+                      <a href={order.buy_url} target="_blank" class="text-[0.75rem] text-[#0F726E] font-semibold hover:underline" rel="noreferrer">
+                        Beli
+                      </a>
+                    )}
+                  </div>
+                </td>
+                <td class="py-4 px-4">
+                  <span class={`px-[6px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em] ${order.type === 'custom' ? 'bg-[#E8E9ED] text-[#1A1D23]' : 'bg-[#D5EDEB] text-[#0F726E]'}`}>
+                    {order.type}
+                  </span>
+                </td>
+                <td class="py-4 px-4 text-center font-mono">{order.qty}</td>
+                <td class="py-4 px-4 text-right font-mono">{jpyVal}</td>
+                <td class="py-4 px-4 text-center" data-dp-cell></td>
+                <td class="py-4 px-4 text-right font-mono">
+                  {finalIdr ? (
+                    <div>
+                      <div class="text-[0.75rem] text-[#1E6B3F] font-semibold">FINAL</div>
+                      <div>{finalIdr}</div>
+                      {order.custom_fee_idr && (
+                        <div class="text-[0.7rem] text-[#5B606D]">Fee: Rp {order.custom_fee_idr.toLocaleString('id-ID')}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <div class="text-[0.6875rem] text-[#8B5E0A] font-semibold">{isOverridden ? 'OVERRIDE' : 'EST'}</div>
+                      <div>{idrVal}</div>
+                    </div>
+                  )}
+                </td>
+                <td class="py-4 px-4 text-right font-mono text-[#5B606D]">
+                  {boughtJpy}
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span data-testid="status-badge" class={`px-[6px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em] badge-${order.status.toLowerCase()}`}>
+                    {order.status}
+                  </span>
+                </td>
+                <td class="py-4 px-4 text-right relative">
+                  <div class="dropdown dropdown-left">
+                    <button tabindex="0" data-testid="context-menu-btn" class="p-1 hover:bg-[#E8E9ED] rounded-[4px] transition-colors focus:outline-none">
+                      <svg class="w-5 h-5 text-[#5B606D]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                      </svg>
+                    </button>
+                    <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-56 text-left z-40 border border-[#E8E9ED]">
+                      {order.status === 'Draft' && (
+                        <li>
+                          <button class="action-btn" data-action="mark-pending" data-testid="action-mark-pending">
+                            Mark as Pending
+                          </button>
+                        </li>
+                      )}
+                      {order.status === 'Pending' && (
+                        <li>
+                          <button class="action-btn" data-action="mark-bought" data-testid="action-mark-bought">
+                            Mark as Bought
+                          </button>
+                        </li>
+                      )}
+                      {order.status !== 'Cancelled' && (
+                        <>
+                          <li class="border-t border-[#E8E9ED] my-1 mx-4"></li>
+                          <li>
+                            <button class="action-btn" data-action="dp" data-testid="action-dp">
+                              Down Payment
+                            </button>
+                          </li>
+                        </>
+                      )}
+                      {order.status !== 'Bought' && order.status !== 'Cancelled' && (
+                        <li>
+                          <button class="action-btn text-[#D1453B]" data-action="cancel" data-testid="action-cancel">
+                            Cancel Order
+                          </button>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Cancel Modal -->
+  <dialog id="cancel-modal" data-testid="cancel-modal" class="modal">
+    <div class="modal-box bg-[#FFFFFF] border border-[#E8E9ED] shadow-lg rounded-[10px]">
+      <h3 class="font-bold text-lg text-[#D1453B] mb-4">Cancel Order</h3>
+      <form id="cancel-form" class="flex flex-col gap-4">
+        <input type="hidden" id="cancel-order-id" />
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Alasan Pembatalan</label>
+          <textarea
+            id="cancel-reason-input"
+            data-testid="cancel-reason-input"
+            required
+            maxlength="500"
+            rows="3"
+            class="w-full p-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#D1453B] resize-none"
+            placeholder="Alasan dibatalkan (misal: barang habis, dsb)..."
+          ></textarea>
+        </div>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost text-[#5B606D] rounded-[6px]" onclick="document.getElementById('cancel-modal').close()">Batal</button>
+          <button type="submit" data-testid="cancel-confirm-btn" class="btn bg-[#D1453B] hover:bg-[#B3352C] text-white rounded-[6px]">Konfirmasi Batal</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Set Price & Mark Pending Modal (unified: catalog + custom) -->
+  <dialog id="pending-price-modal" data-testid="pending-price-modal" class="modal">
+    <div class="modal-box bg-[#FFFFFF] border border-[#E8E9ED] shadow-lg rounded-[10px]">
+      <h3 class="font-bold text-lg text-[#1A1D23] mb-1">Set Price & Mark Pending</h3>
+      <p class="text-[0.8125rem] text-[#5B606D] mb-4">Ubah harga Yen untuk auto-hitung IDR. Harga IDR inilah yang ditampilkan ke pembeli.</p>
+      <form id="pending-price-form" class="flex flex-col gap-4">
+        <input type="hidden" id="pending-order-id" />
+        <input type="hidden" id="pending-order-type" />
+        <input type="hidden" id="pending-rate" />
+        <input type="hidden" id="pending-fee" />
+        <div id="pending-est-info" class="text-[0.8125rem] text-[#5B606D] bg-[#F9F9F7] rounded-[6px] px-3 py-2 border border-[#E8E9ED]"></div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Harga JPY (Yen)</label>
+          <input
+            type="number"
+            id="pending-jpy-input"
+            data-testid="pending-jpy-input"
+            min="0"
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="Harga dalam Yen..."
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Harga IDR <span class="text-[#D1453B]">*</span> <span class="text-[#5B606D] font-normal">(auto dari Yen, bisa diedit)</span></label>
+          <input
+            type="number"
+            id="pending-idr-input"
+            data-testid="pending-idr-input"
+            required
+            min="0"
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="Harga IDR..."
+          />
+        </div>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost text-[#5B606D] rounded-[6px]" onclick="document.getElementById('pending-price-modal').close()">Batal</button>
+          <button type="submit" data-testid="pending-confirm-btn" class="btn bg-[#0F726E] hover:bg-[#0A5D59] text-white rounded-[6px]">Konfirmasi Pending</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Mark as Bought Modal (record actual bought price in JPY) -->
+  <dialog id="bought-modal" class="modal">
+    <div class="modal-box bg-[#FFFFFF] border border-[#E8E9ED] shadow-lg rounded-[10px]">
+      <h3 class="font-bold text-lg text-[#1A1D23] mb-1">Mark as Bought</h3>
+      <p class="text-[0.8125rem] text-[#5B606D] mb-4">Catat harga aktual yang kamu bayar di Jepang (dalam Yen). Ini dipakai untuk menghitung PnL yang akurat.</p>
+      <form id="bought-form" class="flex flex-col gap-4">
+        <input type="hidden" id="bought-order-id" />
+        <div id="bought-est-info" class="text-[0.8125rem] text-[#5B606D] bg-[#F9F9F7] rounded-[6px] px-3 py-2 border border-[#E8E9ED]"></div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Harga Beli Aktual (¥) <span class="text-[#D1453B]">*</span></label>
+          <input
+            type="number"
+            id="bought-price-input"
+            required
+            min="1"
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="Harga aktual yang kamu bayar di toko (¥)..."
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Harga Final IDR (Opsional)</label>
+          <input
+            type="number"
+            id="bought-final-price-input"
+            min="0"
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="Harga final dalam IDR..."
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Fee Jastip IDR (Opsional)</label>
+          <input
+            type="number"
+            id="bought-fee-input"
+            min="0"
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="Override fee jastip..."
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Manual IDR Override (Opsional)</label>
+          <input
+            type="number"
+            id="bought-override-input"
+            min="0"
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="Override rumus kalkulasi..."
+          />
+        </div>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost text-[#5B606D] rounded-[6px]" onclick="document.getElementById('bought-modal').close()">Batal</button>
+          <button type="submit" class="btn bg-[#0F726E] hover:bg-[#0A5D59] text-white rounded-[6px]">Konfirmasi Bought</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <script>
+    // Status Filter Client Logic
+    const filterPills = document.querySelectorAll('.filter-pill');
+    const orderRows = document.querySelectorAll('.order-row');
+
+    filterPills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        filterPills.forEach(p => {
+          p.classList.remove('bg-[#1A1D23]', 'text-[#FFFFFF]');
+          p.classList.add('bg-[#E8E9ED]', 'text-[#5B606D]');
+        });
+        pill.classList.remove('bg-[#E8E9ED]', 'text-[#5B606D]');
+        pill.classList.add('bg-[#1A1D23]', 'text-[#FFFFFF]');
+
+        const status = pill.getAttribute('data-status');
+        orderRows.forEach(row => {
+          const rowStatus = row.getAttribute('data-status');
+          if (status === 'All' || rowStatus === status) {
+            (row as HTMLElement).style.display = '';
+          } else {
+            (row as HTMLElement).style.display = 'none';
+          }
+        });
+      });
+    });
+
+    // Action Menu Event Handler
+    document.querySelectorAll('.action-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const action = btn.getAttribute('data-action');
+        const row = btn.closest('.order-row') as HTMLElement;
+        const orderId = row.getAttribute('data-id')!;
+        const orderType = row.getAttribute('data-type')!;
+        const orderJpy = row.getAttribute('data-jpy');
+        const estIdr = row.getAttribute('data-est-idr');
+        const orderJpyNum = orderJpy ? parseInt(orderJpy) : 0;
+
+        // close open dropdowns
+        (document.activeElement as HTMLElement)?.blur();
+
+        if (action === 'mark-pending') {
+          const rate = parseFloat(row.getAttribute('data-rate') || '0') || 0;
+          const fee = parseFloat(row.getAttribute('data-fee') || '0') || 0;
+          const overrideIdr = row.getAttribute('data-override-idr');
+          const pendingModal = document.getElementById('pending-price-modal') as HTMLDialogElement;
+          (document.getElementById('pending-order-id') as HTMLInputElement).value = orderId;
+          (document.getElementById('pending-order-type') as HTMLInputElement).value = orderType;
+          (document.getElementById('pending-rate') as HTMLInputElement).value = String(rate);
+          (document.getElementById('pending-fee') as HTMLInputElement).value = String(fee);
+          const jpyInput = document.getElementById('pending-jpy-input') as HTMLInputElement;
+          const idrInput = document.getElementById('pending-idr-input') as HTMLInputElement;
+          jpyInput.value = orderJpy || '';
+          idrInput.value = overrideIdr || estIdr || '';
+          const estInfo = document.getElementById('pending-est-info')!;
+          estInfo.innerHTML = orderType === 'custom'
+            ? `<span class="font-semibold">Custom order</span> · rate ${rate} · fee ${fee}%`
+            : `<span class="font-semibold">Catalog</span> · rate ${rate} · fee ${fee}%`;
+          pendingModal.showModal();
+        } else if (action === 'mark-bought') {
+          // Open the bought modal to record actual purchase price
+          const boughtModal = document.getElementById('bought-modal') as HTMLDialogElement;
+          (document.getElementById('bought-order-id') as HTMLInputElement).value = orderId;
+          const overrideIdr = row.getAttribute('data-override-idr');
+          const currentIdr = overrideIdr || estIdr; // last updated pricing (override > estimate)
+          const currentIdrNum = currentIdr ? parseInt(currentIdr) : 0;
+          const estInfo = document.getElementById('bought-est-info')!;
+          const jpyPart = orderJpyNum
+            ? `Estimasi ¥ ${orderJpyNum.toLocaleString('ja-JP')}`
+            : `<span class="text-[#8B5E0A]">Harga estimasi tidak tersedia.</span>`;
+          const idrPart = currentIdrNum
+            ? `Harga IDR terakhir: <span class="font-semibold ${overrideIdr ? 'text-[#0F726E]' : ''}">Rp ${currentIdrNum.toLocaleString('id-ID')}${overrideIdr ? ' (override)' : ''}</span>`
+            : '';
+          estInfo.innerHTML = `<span class="font-semibold">${jpyPart}</span>${idrPart ? `<br/>${idrPart}` : ''}`;
+          // Pre-fill bought JPY with the product estimate
+          const boughtInput = document.getElementById('bought-price-input') as HTMLInputElement;
+          if (orderJpyNum) boughtInput.value = String(orderJpyNum);
+          // Pre-fill IDR final with the last updated pricing (override > estimate)
+          const finalInput = document.getElementById('bought-final-price-input') as HTMLInputElement;
+          if (currentIdrNum) finalInput.value = String(currentIdrNum);
+          boughtModal.showModal();
+        } else if (action === 'dp') {
+          const dpModal = document.getElementById('dp-modal') as HTMLDialogElement;
+          (document.getElementById('dp-order-id') as HTMLInputElement).value = orderId;
+          const dpTargetInput = document.getElementById('dp-target-input') as HTMLInputElement;
+          const dpPaidInput = document.getElementById('dp-paid-input') as HTMLInputElement;
+          const paidAmountStr = row.getAttribute('data-dp-paid') || '0';
+          const estIdrNum = estIdr ? parseInt(estIdr) : 0;
+          const defaultDp = estIdrNum ? Math.ceil(estIdrNum * 0.5 / 1000) * 1000 : 0;
+          const currentDpTarget = row.getAttribute('data-dp-target');
+          dpTargetInput.value = currentDpTarget || String(defaultDp);
+          dpPaidInput.value = paidAmountStr;
+          dpModal.showModal();
+        } else if (action === 'cancel') {
+          const cancelModal = document.getElementById('cancel-modal') as HTMLDialogElement;
+          (document.getElementById('cancel-order-id') as HTMLInputElement).value = orderId;
+          cancelModal.showModal();
+        }
+      });
+    });
+
+    // Helpers
+    async function updateStatus(orderId: string, status: string, extraBody: Record<string, unknown> = {}) {
+      try {
+        const apiClient = (window as any).apiClient || fetch;
+        const res = await apiClient(`/api/admin/orders/${orderId}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status, ...extraBody }),
+        });
+
+        if (res.ok) {
+          window.showToast?.(`Status pesanan ${orderId} diupdate ke ${status}!`, 'success');
+          window.location.reload();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          window.showToast?.(err.error || 'Gagal mengupdate status.', 'error');
+        }
+      } catch {
+        window.showToast?.('Terjadi kesalahan jaringan.', 'error');
+      }
+    }
+
+    // Pending price form — live JPY -> IDR calc + submit (unified catalog/custom)
+    const pendingJpyInput = document.getElementById('pending-jpy-input') as HTMLInputElement;
+    const pendingIdrInput = document.getElementById('pending-idr-input') as HTMLInputElement;
+    function calcIdrFromJpy(jpy: number, rate: number, fee: number): number {
+      const raw = jpy * rate * (1 + fee / 100);
+      return Math.ceil(raw / 1000) * 1000;
+    }
+    pendingJpyInput?.addEventListener('input', () => {
+      const rate = parseFloat((document.getElementById('pending-rate') as HTMLInputElement).value) || 0;
+      const fee = parseFloat((document.getElementById('pending-fee') as HTMLInputElement).value) || 0;
+      const jpy = parseInt(pendingJpyInput.value, 10);
+      if (jpy > 0 && rate > 0) {
+        pendingIdrInput.value = String(calcIdrFromJpy(jpy, rate, fee));
+      }
+    });
+
+    document.getElementById('pending-price-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const orderId = (document.getElementById('pending-order-id') as HTMLInputElement).value;
+      const orderType = (document.getElementById('pending-order-type') as HTMLInputElement).value;
+      const idr = parseInt(pendingIdrInput.value, 10);
+
+      const pendingModal = document.getElementById('pending-price-modal') as HTMLDialogElement;
+      pendingModal.close();
+
+      const extraBody: Record<string, unknown> = { manual_idr_override: idr };
+      // price_jpy only valid for custom orders (API rejects it for catalog)
+      if (orderType === 'custom' && pendingJpyInput.value) {
+        extraBody.price_jpy = parseInt(pendingJpyInput.value, 10);
+      }
+
+      await updateStatus(orderId, 'Pending', extraBody);
+    });
+
+    // Bought form submit (record actual purchase JPY price)
+    document.getElementById('bought-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const orderId = (document.getElementById('bought-order-id') as HTMLInputElement).value;
+      const boughtJpy = parseInt((document.getElementById('bought-price-input') as HTMLInputElement).value, 10);
+      const finalPrice = (document.getElementById('bought-final-price-input') as HTMLInputElement).value;
+      const customFee = (document.getElementById('bought-fee-input') as HTMLInputElement).value;
+      const overridePrice = (document.getElementById('bought-override-input') as HTMLInputElement).value;
+
+      const boughtModal = document.getElementById('bought-modal') as HTMLDialogElement;
+      boughtModal.close();
+
+      const extraBody: Record<string, unknown> = { bought_price_jpy: boughtJpy };
+      if (finalPrice) extraBody.price_idr_final = parseInt(finalPrice, 10);
+      if (customFee) extraBody.custom_fee_idr = parseInt(customFee, 10);
+      if (overridePrice) extraBody.manual_idr_override = parseInt(overridePrice, 10);
+
+      await updateStatus(orderId, 'Bought', extraBody);
+    });
+
+    // Cancel Form Submit
+    document.getElementById('cancel-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const orderId = (document.getElementById('cancel-order-id') as HTMLInputElement).value;
+      const reasonInput = document.getElementById('cancel-reason-input') as HTMLTextAreaElement;
+
+      const cancelModal = document.getElementById('cancel-modal') as HTMLDialogElement;
+      cancelModal.close();
+
+      try {
+        const apiClient = (window as any).apiClient || fetch;
+        const res = await apiClient(`/api/admin/orders/${orderId}/cancel`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            cancellation_reason: reasonInput.value.trim()
+          }),
+        });
+
+        if (res.ok) {
+          window.showToast?.(`Pesanan ${orderId} berhasil dibatalkan.`, 'success');
+          window.location.reload();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          window.showToast?.(err.error || 'Gagal membatalkan pesanan.', 'error');
+        }
+      } catch {
+        window.showToast?.('Terjadi kesalahan jaringan.', 'error');
+      }
+    });
+
+    // DP Form Submit
+    document.getElementById('dp-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const orderId = (document.getElementById('dp-order-id') as HTMLInputElement).value;
+      const target = (document.getElementById('dp-target-input') as HTMLInputElement).value;
+      const paid = (document.getElementById('dp-paid-input') as HTMLInputElement).value;
+
+      const dpModal = document.getElementById('dp-modal') as HTMLDialogElement;
+      dpModal.close();
+
+      try {
+        const apiClient = (window as any).apiClient || fetch;
+        const res = await apiClient(`/api/admin/orders/${orderId}/payment`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            down_payment_idr: target ? parseInt(target, 10) : undefined,
+            paid_amount_idr: paid ? parseInt(paid, 10) : undefined,
+          }),
+        });
+
+        if (res.ok) {
+          window.showToast?.(`Pembayaran untuk ${orderId} berhasil disimpan!`, 'success');
+          window.location.reload();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          window.showToast?.(err.error || 'Gagal menyimpan pembayaran.', 'error');
+        }
+      } catch {
+        window.showToast?.('Terjadi kesalahan jaringan.', 'error');
+      }
+    });
+
+    function renderDpCells() {
+      document.querySelectorAll('[data-dp-cell]').forEach(cell => {
+        const row = cell.closest('.order-row') as HTMLElement;
+        const dpTargetStr = row.getAttribute('data-dp-target');
+        const dpPaidStr = row.getAttribute('data-dp-paid') || '0';
+        const dpPaid = parseInt(dpPaidStr, 10) || 0;
+
+        if (!dpTargetStr) {
+          cell.innerHTML = dpPaid > 0
+            ? `<span class="text-[0.7rem] text-[#2E8B57] font-semibold">Terbayar Rp ${dpPaid.toLocaleString('id-ID')}</span>`
+            : `<span class="text-[0.7rem] text-[#A5A9B2]">—</span>`;
+          return;
+        }
+
+        const dpTarget = parseInt(dpTargetStr, 10) || 0;
+        const isMet = dpPaid >= dpTarget;
+        cell.innerHTML = `
+          <div class="flex flex-col items-center gap-0.5 text-[0.7rem]">
+            <span class="font-semibold text-[#1A1D23]">Rp ${dpTarget.toLocaleString('id-ID')}</span>
+            <span class="px-1 py-0.5 rounded text-[0.55rem] font-bold uppercase tracking-wider ${isMet ? 'bg-[#D9EDE2] text-[#1E6B3F]' : 'bg-[#FDF3E7] text-[#8B5E0A]'}">${isMet ? 'Terbayar' : 'Belum'}</span>
+            <span class="text-[#5B606D]">Sisa: Rp ${Math.max(dpTarget - dpPaid, 0).toLocaleString('id-ID')}</span>
+          </div>
+        `;
+      });
+    }
+    renderDpCells();
+  </script>
+
+  <!-- Down Payment Modal -->
+  <dialog id="dp-modal" class="modal">
+    <div class="modal-box bg-[#FFFFFF] border border-[#E8E9ED] shadow-lg rounded-[10px]">
+      <h3 class="font-bold text-lg text-[#1A1D23] mb-1">Down Payment</h3>
+      <p class="text-[0.8125rem] text-[#5B606D] mb-4">Atur target DP dan jumlah yang sudah dibayar pembeli.</p>
+      <form id="dp-form" class="flex flex-col gap-4">
+        <input type="hidden" id="dp-order-id" />
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Target DP (IDR)</label>
+          <input
+            type="number"
+            id="dp-target-input"
+            min="0"
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="50% dari estimasi harga..."
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[0.8125rem] font-semibold text-[#1A1D23]">Jumlah Dibayar (IDR)</label>
+          <input
+            type="number"
+            id="dp-paid-input"
+            min="0"
+            class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+            placeholder="Total yang sudah ditransfer pembeli..."
+          />
+        </div>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost text-[#5B606D] rounded-[6px]" onclick="document.getElementById('dp-modal').close()">Batal</button>
+          <button type="submit" class="btn bg-[#0F726E] hover:bg-[#0A5D59] text-white rounded-[6px]">Simpan Pembayaran</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+</AdminLayout>

@@ -1,0 +1,231 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+/* ============================================================
+   Kotemart Keychron Light — Design Tokens
+   Source: DESIGN.md
+   ============================================================ */
+@theme {
+  /* Core palette */
+  --color-primary:    #1A1D23;
+  --color-secondary:  #5B606D;
+  --color-tertiary:   #1A8F89;
+  --color-neutral:    #F9F9F7;
+  --color-surface:    #FFFFFF;
+  --color-border:     #E8E9ED;
+  --color-muted:      #F1F2F5;
+
+  /* Semantic */
+  --color-success:    #2E8B57;
+  --color-warning:    #D4890B;
+  --color-danger:     #D1453B;
+
+  /* Status-specific backgrounds */
+  --color-badge-active-bg:    #D5EDEB;
+  --color-badge-active-text:  #0F726E;
+  --color-badge-success-bg:   #D9EDE2;
+  --color-badge-success-text: #1E6B3F;
+  --color-gate-closed-bg:     #FDF3E7;
+  --color-gate-closed-text:   #8B5E0A;
+  --color-alert-error-bg:     #FDEDEC;
+  --color-alert-error-text:   #A6312A;
+
+  /* Buttons */
+  --color-btn-primary:        #0F726E;
+  --color-btn-primary-hover:  #0A5D59;
+
+  /* Typography */
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+
+  /* Border radius */
+  --radius-xs:   3px;
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   16px;
+
+  /* Shadows */
+  --shadow-card:       0 1px 3px rgba(26, 29, 35, 0.06), 0 1px 2px rgba(26, 29, 35, 0.04);
+  --shadow-card-hover: 0 4px 12px rgba(26, 29, 35, 0.08), 0 2px 4px rgba(26, 29, 35, 0.04);
+  --shadow-modal:      0 8px 32px rgba(26, 29, 35, 0.12), 0 2px 8px rgba(26, 29, 35, 0.06);
+  --shadow-dropdown:   0 4px 16px rgba(26, 29, 35, 0.08);
+}
+
+/* ============================================================
+   Base resets / global styles
+   ============================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  background-color: var(--color-neutral);
+  color: var(--color-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Smooth transitions */
+@media (prefers-reduced-motion: no-preference) {
+  * {
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+}
+
+/* Scrollbar - hide horizontal overflow for marquee */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Light scrollbar everywhere */
+html {
+  scrollbar-color: var(--color-border) var(--color-neutral);
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-neutral); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-secondary); }
+
+/* ============================================================
+   Utility classes matching DESIGN.md tokens
+   ============================================================ */
+
+/* Focus ring — 2px solid tertiary, 2px offset */
+.focus-ring:focus {
+  outline: 2px solid var(--color-tertiary);
+  outline-offset: 2px;
+}
+
+/* Button: primary */
+.btn-primary-custom {
+  height: 44px;
+  padding: 0 16px;
+  background-color: var(--color-btn-primary);
+  color: #FFFFFF;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  cursor: pointer;
+}
+.btn-primary-custom:hover { background-color: var(--color-btn-primary-hover); }
+.btn-primary-custom:active { transform: scale(0.98); }
+.btn-primary-custom:disabled {
+  background-color: var(--color-muted);
+  color: var(--color-secondary);
+  cursor: not-allowed;
+}
+
+/* Button: secondary */
+.btn-secondary-custom {
+  height: 44px;
+  padding: 0 16px;
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn-secondary-custom:hover { background-color: var(--color-muted); }
+.btn-secondary-custom:active { transform: scale(0.98); }
+
+/* Product card */
+.card-product {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: box-shadow 150ms ease-out;
+}
+.card-product:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* Status badges */
+.badge-draft    { background: var(--color-muted); color: var(--color-secondary); }
+.badge-pending  { background: var(--color-badge-active-bg); color: var(--color-badge-active-text); }
+.badge-bought   { background: var(--color-badge-active-bg); color: var(--color-badge-active-text); }
+.badge-settled  { background: var(--color-badge-success-bg); color: var(--color-badge-success-text); }
+.badge-cancelled{ background: var(--color-alert-error-bg); color: var(--color-alert-error-text); }
+
+/* Marquee animation */
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee-scroll 35s linear infinite;
+  display: flex;
+  width: max-content;
+}
+.marquee-container:hover .animate-marquee {
+  animation-play-state: paused;
+}
+
+/* Toast notification */
+@keyframes toast-slide-in {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.toast-slide-in {
+  animation: toast-slide-in 200ms ease-out;
+}
+
+/* Image upload progress bar */
+@keyframes indeterminate {
+  from { background-position: 0 0; }
+  to   { background-position: 600px 0; }
+}
+.progress-bar-indeterminate {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-tertiary) 25%,
+    transparent 25%,
+    transparent 50%,
+    var(--color-tertiary) 50%,
+    var(--color-tertiary) 75%,
+    transparent 75%
+  );
+  background-size: 40px 100%;
+  animation: indeterminate 600ms linear infinite;
+}
+
+/* Admin sidebar */
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+.sidebar-nav-item:hover {
+  background-color: var(--color-muted);
+  color: var(--color-primary);
+}
+.sidebar-nav-item.active {
+  color: var(--color-tertiary);
+  background-color: var(--color-badge-active-bg);
+}

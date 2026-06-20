@@ -1,0 +1,24 @@
+{
+  "project": "kotemart-jastip",
+  "generated": "2026-06-16",
+  "version": "01",
+  "tags": {
+    "domain": ["jastip", "e-catalog", "personal-commerce"],
+    "project_type": ["web-app", "admin-panel"],
+    "personas": ["buyer", "admin"],
+    "modules": [
+      "auth",
+      "catalog",
+      "jastip-gate",
+      "order-list",
+      "custom-order",
+      "order-management",
+      "profit-tracker",
+      "admin-panel"
+    ],
+    "tech_stack": ["astro", "tailwindcss", "daisyui", "hono", "sqlite"],
+    "integrations": ["google-oauth2", "telegram", "cloudflare-pages", "cloudflare-workers", "cloudflare-d1", "cloudflare-r2"],
+    "scale": "small",
+    "platform": ["web"]
+  }
+}

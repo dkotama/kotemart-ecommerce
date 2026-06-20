@@ -1,0 +1,211 @@
+---
+export const prerender = false;
+
+import AdminLayout from './layout.astro';
+import { env } from 'cloudflare:workers';
+import type { User } from '../../lib/types';
+
+const user = Astro.locals.user;
+let usersList: User[] = [];
+
+try {
+  const db = (env as any).DB;
+  if (db) {
+    const result = await db.prepare(`
+      SELECT id, email, name, avatar_url, role, is_active, created_at
+      FROM users
+      ORDER BY created_at DESC
+    `).all<User>();
+    if (result?.results) {
+      usersList = result.results;
+    }
+  }
+} catch (err) {
+  console.error('Fetch users error:', err);
+}
+---
+
+<AdminLayout title="User" user={user} currentPath="/admin/users">
+  <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <h2 class="text-[1.5rem] font-bold text-[#1A1D23] tracking-[-0.02em]">Kelola Pengguna</h2>
+      <p class="text-[0.8125rem] text-[#5B606D]">Lihat daftar pengguna terdaftar dan kelola hak akses mereka.</p>
+    </div>
+    
+    <!-- Search Bar -->
+    <div class="relative shrink-0 w-full sm:w-[320px]">
+      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[#5B606D]">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+      </span>
+      <input
+        type="text"
+        id="search-users-input"
+        data-testid="search-users-input"
+        placeholder="Cari nama atau email..."
+        class="w-full h-[40px] pl-[38px] pr-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+      />
+    </div>
+  </div>
+
+  <!-- Users Table -->
+  <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] overflow-hidden shadow-sm" data-testid="users-table">
+    <div class="overflow-x-auto w-full">
+      <table class="w-full text-[0.875rem] border-collapse">
+        <thead>
+          <tr class="bg-[#F9F9F7] border-b border-[#E8E9ED] text-left text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">
+            <th class="py-3 px-4 w-[60px]">Pengguna</th>
+            <th class="py-3 px-4">Nama</th>
+            <th class="py-3 px-4">Email</th>
+            <th class="py-3 px-4">Role</th>
+            <th class="py-3 px-4">Bergabung</th>
+            <th class="py-3 px-4 text-center">Status Akses</th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody">
+          {usersList.length === 0 ? (
+            <tr>
+              <td colspan="6" class="py-12 text-center text-[#5B606D]">
+                Belum ada pengguna terdaftar.
+              </td>
+            </tr>
+          ) : (
+            usersList.map((u) => {
+              const initials = u.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+              const formattedDate = u.created_at
+                ? new Date(u.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+                : '—';
+              const isSelf = user && u.id === user.id;
+              
+              return (
+                <tr
+                  class="border-b border-[#E8E9ED] hover:bg-[#F9F9F7]/50 transition-colors user-row"
+                  data-testid="user-row"
+                  data-name={u.name}
+                  data-email={u.email}
+                  data-id={u.id}
+                >
+                  <td class="py-4 px-4">
+                    {u.avatar_url ? (
+                      <img src={u.avatar_url} alt={u.name} class="w-10 h-10 rounded-full object-cover border border-[#E8E9ED]" />
+                    ) : (
+                      <div class="w-10 h-10 rounded-full bg-[#1A8F89] flex items-center justify-center text-[#FFFFFF] text-[0.8125rem] font-bold border border-[#E8E9ED]">
+                        <span>{initials}</span>
+                      </div>
+                    )}
+                  </td>
+                  <td class="py-4 px-4 font-semibold text-[#1A1D23]">
+                    {u.name}
+                    {isSelf && (
+                      <span class="ml-2 bg-[#F1F2F5] text-[#5B606D] text-[0.625rem] px-2 py-[2px] rounded font-semibold uppercase tracking-[0.05em]">
+                        Saya
+                      </span>
+                    )}
+                  </td>
+                  <td class="py-4 px-4 text-[#5B606D] font-mono text-[0.8125rem]">{u.email}</td>
+                  <td class="py-4 px-4">
+                    <span class={`px-[6px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em] ${
+                      u.role === 'admin' ? 'bg-[#D5EDEB] text-[#0F726E]' : 'bg-[#E8E9ED] text-[#1A1D23]'
+                    }`}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td class="py-4 px-4 text-[#5B606D] text-[0.8125rem]">{formattedDate}</td>
+                  <td class="py-4 px-4 text-center">
+                    {isSelf ? (
+                      <div class="tooltip tooltip-left" data-tip="Tidak dapat menonaktifkan akun sendiri">
+                        <button
+                          disabled
+                          class="px-4 h-[36px] rounded-[6px] text-[0.6875rem] font-bold uppercase tracking-[0.1em] transition-all flex items-center justify-center border bg-[#F1F2F5] text-[#5B606D] border-[#E8E9ED] cursor-not-allowed opacity-50"
+                        >
+                          Aktif
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        data-testid="toggle-access-btn"
+                        data-userid={u.id}
+                        data-state={u.is_active}
+                        class={`px-4 h-[36px] w-[110px] rounded-[6px] text-[0.6875rem] font-bold uppercase tracking-[0.1em] transition-all flex items-center justify-center border ${
+                          u.is_active === 1
+                            ? 'bg-[#D9EDE2] border-[#2E8B57] text-[#1E6B3F] hover:bg-[#c9e4d4]'
+                            : 'bg-[#FDEDEC] border-[#D1453B] text-[#A6312A] hover:bg-[#fadad8]'
+                        }`}
+                      >
+                        {u.is_active === 1 ? 'Aktif' : 'Nonaktif'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</AdminLayout>
+
+<script>
+  // Search Users functionality
+  const searchInput = document.getElementById('search-users-input') as HTMLInputElement;
+  const userRows = document.querySelectorAll('.user-row');
+
+  searchInput?.addEventListener('input', () => {
+    const query = searchInput.value.toLowerCase().trim();
+    userRows.forEach((row) => {
+      const name = row.getAttribute('data-name')?.toLowerCase() || '';
+      const email = row.getAttribute('data-email')?.toLowerCase() || '';
+      if (name.includes(query) || email.includes(query)) {
+        row.classList.remove('hidden');
+      } else {
+        row.classList.add('hidden');
+      }
+    });
+  });
+
+  // Toggle user access
+  const toggleBtns = document.querySelectorAll('[data-testid="toggle-access-btn"]');
+
+  toggleBtns.forEach((btnElement) => {
+    const btn = btnElement as HTMLButtonElement;
+    btn.addEventListener('click', async () => {
+      const userId = btn.getAttribute('data-userid');
+      const currentState = btn.getAttribute('data-state');
+      
+      btn.disabled = true;
+
+      try {
+        const apiClient = (window as any).apiClient || fetch;
+        const res = await apiClient(`/api/admin/users/${userId}/toggle-access`, {
+          method: 'PATCH',
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const finalState = data.is_active;
+
+          btn.setAttribute('data-state', String(finalState));
+          btn.textContent = finalState === 1 ? 'Aktif' : 'Nonaktif';
+
+          // Update styles
+          if (finalState === 1) {
+            btn.className = 'px-4 h-[36px] w-[110px] rounded-[6px] text-[0.6875rem] font-bold uppercase tracking-[0.1em] transition-all flex items-center justify-center border bg-[#D9EDE2] border-[#2E8B57] text-[#1E6B3F] hover:bg-[#c9e4d4]';
+          } else {
+            btn.className = 'px-4 h-[36px] w-[110px] rounded-[6px] text-[0.6875rem] font-bold uppercase tracking-[0.1em] transition-all flex items-center justify-center border bg-[#FDEDEC] border-[#D1453B] text-[#A6312A] hover:bg-[#fadad8]';
+          }
+
+          window.showToast?.('Akses pengguna berhasil diupdate!', 'success');
+        } else {
+          const err = await res.json().catch(() => ({}));
+          window.showToast?.(err.error || 'Gagal mengubah akses pengguna.', 'error');
+        }
+      } catch {
+        window.showToast?.('Terjadi kesalahan jaringan.', 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+</script>

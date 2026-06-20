@@ -1,0 +1,28 @@
+id,product_id,variant_name,price_jpy,product_url,sort_order
+var-001-1,prod-001,Red Switch (Linear),17600,,0
+var-001-2,prod-001,Brown Switch (Tactile),17600,,1
+var-001-3,prod-001,Blue Switch (Clicky),17600,,2
+var-002-1,prod-002,Standard Box,1870,,0
+var-003-1,prod-003,50g Tube,1088,,0
+var-003-2,prod-003,100g Tube,1182,,1
+var-003-3,prod-003,120g Pouch,1650,,2
+var-004-1,prod-004,70ml,1200,,0
+var-004-2,prod-004,120ml,1800,,1
+var-004-3,prod-004,200ml,2600,,2
+var-005-1,prod-005,60 Tablet,1160,,0
+var-005-2,prod-005,60 Tablet × 2 Pack,2200,,1
+var-005-3,prod-005,60 Tablet × 4 Pack,4200,,2
+var-006-1,prod-006,30 Hari (1 Set),2580,,0
+var-006-2,prod-006,15 Hari (1 Set),1409,,1
+var-007-1,prod-007,Single Bag (30 Sticks),2250,,0
+var-007-2,prod-007,2 Bag Set (60 Sticks),4200,,1
+var-007-3,prod-007,3 Bag Set (90 Sticks),5800,,2
+var-008-1,prod-008,2-Pack Set,1302,,0
+var-008-2,prod-008,3-Pack Set,1888,,1
+var-009-1,prod-009,Regular (170ml),1200,,0
+var-009-2,prod-009,Premium (170ml),1675,,1
+var-010-1,prod-010,XS,1990,,0
+var-010-2,prod-010,S,1990,,1
+var-010-3,prod-010,M,1990,,2
+var-010-4,prod-010,L,1990,,3
+var-010-5,prod-010,XL,1990,,4

@@ -1,0 +1,49 @@
+# build output
+dist/
+# generated types
+.astro/
+
+# dependencies
+node_modules/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# environment variables
+.env
+.env.production
+.dev.vars
+
+# macOS-specific files
+.DS_Store
+
+# jetbrains setting folder
+.idea/
+
+# wrangler local state
+.wrangler/
+
+# test output
+test-results/
+playwright-report/
+
+# secret files
+kotemart-jastip-secret.json
+*-secret.json
+
+# wrangler config (contains Cloudflare resource IDs)
+wrangler.jsonc
+
+# personal catalog data (keep local, use db/samples/ for public)
+src/data/
+
+# planning docs
+implementation_plan.md
+bug-report/
+
+# personal product images
+public/images/products/

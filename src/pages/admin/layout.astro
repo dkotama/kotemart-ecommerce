@@ -1,0 +1,132 @@
+---
+export const prerender = false;
+
+import Layout from '../../layouts/Layout.astro';
+
+interface Props {
+  title: string;
+  user?: import('../../lib/types').User | null;
+  currentPath?: string;
+}
+
+const { title, user = Astro.locals.user, currentPath = Astro.url.pathname } = Astro.props;
+---
+
+<Layout title={title} user={user}>
+  <div class="flex min-h-[calc(100vh-73px)] relative flex-col md:flex-row">
+    <!-- Mobile Sidebar Toggle -->
+    <div class="md:hidden bg-[#FFFFFF] border-b border-[#E8E9ED] px-4 py-3 flex items-center justify-between">
+      <span class="text-[0.8125rem] font-bold uppercase tracking-[0.05em] text-[#1A1D23]">{title}</span>
+      <button
+        id="admin-sidebar-mobile-toggle"
+        class="p-2 text-[#5B606D] hover:text-[#1A1D23] transition-colors"
+        aria-label="Toggle admin navigation"
+      >
+        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Sidebar Container (Responsive drawer) -->
+    <aside
+      id="admin-sidebar"
+      class="fixed md:sticky top-[73px] left-0 bottom-0 md:bottom-auto w-full md:w-[240px] h-[calc(100vh-73px)] md:h-auto border-r border-[#E8E9ED] bg-[#FFFFFF] z-30 transition-transform -translate-x-full md:translate-x-0 overflow-y-auto shrink-0"
+    >
+      <div class="p-4 flex flex-col gap-1">
+        <a
+          href="/admin/orders"
+          class={`sidebar-nav-item ${currentPath.startsWith('/admin/orders') ? 'active' : ''}`}
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+          </svg>
+          Pesanan
+        </a>
+        <a
+          href="/admin/products"
+          class={`sidebar-nav-item ${currentPath.startsWith('/admin/products') ? 'active' : ''}`}
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          </svg>
+          Katalog
+        </a>
+
+        <!-- Master Data Sidebar Nav Group -->
+        <div class="mt-4 mb-1 px-4 text-[0.6875rem] font-bold text-[#5B606D] uppercase tracking-[0.15em] border-t border-[#E8E9ED]/50 pt-4">Master Data</div>
+        <a
+          href="/admin/master/categories"
+          class={`sidebar-nav-item pl-6 ${currentPath.startsWith('/admin/master/categories') ? 'active' : ''}`}
+        >
+          Kategori
+        </a>
+        <a
+          href="/admin/master/tags"
+          class={`sidebar-nav-item pl-6 ${currentPath.startsWith('/admin/master/tags') ? 'active' : ''}`}
+        >
+          Tags
+        </a>
+        <a
+          href="/admin/master/notes"
+          class={`sidebar-nav-item pl-6 ${currentPath.startsWith('/admin/master/notes') ? 'active' : ''}`}
+        >
+          Template Catatan
+        </a>
+
+        <div class="mt-4 border-t border-[#E8E9ED]/50 pt-4"></div>
+        <a
+          href="/admin/profit"
+          class={`sidebar-nav-item ${currentPath.startsWith('/admin/profit') ? 'active' : ''}`}
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+          Profit
+        </a>
+        <a
+          href="/admin/settings"
+          class={`sidebar-nav-item ${currentPath.startsWith('/admin/settings') ? 'active' : ''}`}
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Pengaturan
+        </a>
+        <a
+          href="/admin/users"
+          class={`sidebar-nav-item ${currentPath.startsWith('/admin/users') ? 'active' : ''}`}
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+          User
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 p-6 md:p-8" id="admin-main-content">
+      <slot />
+    </main>
+  </div>
+
+  <script>
+    const toggleBtn = document.getElementById('admin-sidebar-mobile-toggle');
+    const sidebar = document.getElementById('admin-sidebar');
+
+    if (toggleBtn && sidebar) {
+      toggleBtn.addEventListener('click', () => {
+        const isOpen = sidebar.classList.contains('translate-x-0');
+        if (isOpen) {
+          sidebar.classList.remove('translate-x-0');
+          sidebar.classList.add('-translate-x-full');
+        } else {
+          sidebar.classList.remove('-translate-x-full');
+          sidebar.classList.add('translate-x-0');
+        }
+      });
+    }
+  </script>
+</Layout>

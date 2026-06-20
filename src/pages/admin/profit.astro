@@ -1,0 +1,292 @@
+---
+export const prerender = false;
+
+import AdminLayout from './layout.astro';
+import { env } from 'cloudflare:workers';
+import type { OrderRow } from '../../lib/types';
+
+const user = Astro.locals.user;
+
+let orders: OrderRow[] = [];
+
+try {
+  const db = (env as any).DB;
+  if (db) {
+    const result = await db.prepare(`
+      SELECT o.id, o.user_id, o.product_id, o.type, o.name, o.qty, o.status,
+             o.price_jpy, o.jpy_rate_snapshot, o.fee_pct_snapshot,
+             o.price_idr_estimate, o.price_idr_final, o.manual_idr_override,
+             o.bought_price_jpy, o.custom_fee_idr,
+             o.settled_at, o.cancelled_at, o.created_at,
+             u.name as buyer_name, u.email as buyer_email
+      FROM orders o
+      JOIN users u ON o.user_id = u.id
+      WHERE o.status IN ('Bought', 'Cancelled')
+      ORDER BY o.settled_at DESC, o.cancelled_at DESC
+    `).all<OrderRow>();
+    if (result?.results) {
+      orders = result.results;
+    }
+  }
+} catch (err) {
+  console.error('Admin profit fetch error:', err);
+}
+---
+
+<AdminLayout title="Profit" user={user} currentPath="/admin/profit">
+  <div class="mb-6" data-testid="profit-page">
+    <h2 class="text-[1.5rem] font-bold text-[#1A1D23] tracking-[-0.02em]">Laporan Profit & Pendapatan</h2>
+    <p class="text-[0.8125rem] text-[#5B606D]">Pantau total jastip berjalan, HPP barang, dan laba kotor yang didapat.</p>
+  </div>
+
+  <!-- KPI Stat Cards Grid -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <!-- Total Orders -->
+    <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-[16px] shadow-sm flex flex-col justify-between h-[100px]">
+      <span class="text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">Total Pesanan (Bought)</span>
+      <span id="kpi-orders" data-testid="stat-total-orders" class="text-[1.75rem] font-bold font-mono text-[#1A1D23] leading-none">0</span>
+    </div>
+    <!-- Total Revenue -->
+    <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-[16px] shadow-sm flex flex-col justify-between h-[100px]">
+      <span class="text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">Total Pendapatan (IDR)</span>
+      <span id="kpi-revenue" class="text-[1.75rem] font-bold font-mono text-[#0F726E] leading-none">Rp 0</span>
+    </div>
+    <!-- Total HPP -->
+    <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-[16px] shadow-sm flex flex-col justify-between h-[100px]">
+      <span class="text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">Total HPP (IDR)</span>
+      <span id="kpi-hpp" class="text-[1.75rem] font-bold font-mono text-[#5B606D] leading-none">Rp 0</span>
+    </div>
+    <!-- Gross Profit -->
+    <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-[16px] shadow-sm flex flex-col justify-between h-[100px]">
+      <span class="text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">Gross Profit (Laba Kotor)</span>
+      <span id="kpi-profit" data-testid="stat-gross-profit" class="text-[1.75rem] font-bold font-mono text-[#2E8B57] leading-none">Rp 0</span>
+    </div>
+  </div>
+
+  <!-- Filters Area -->
+  <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-[16px] shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
+    <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+      <!-- Date Range Picker -->
+      <div class="flex items-center gap-2">
+        <input
+          type="date"
+          id="filter-date-from"
+          class="h-[36px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+        />
+        <span class="text-[#5B606D] text-[0.8125rem]">s.d.</span>
+        <input
+          type="date"
+          id="filter-date-to"
+          class="h-[36px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.8125rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89]"
+        />
+      </div>
+      <button id="btn-reset-dates" class="text-[0.75rem] text-[#1A8F89] font-semibold hover:underline self-center">
+        Reset Tanggal
+      </button>
+    </div>
+
+    <!-- Toggle Show Cancelled -->
+    <div class="flex items-center gap-2">
+      <input type="checkbox" id="toggle-cancelled" class="toggle toggle-sm border-[#5B606D] checked:bg-[#1A8F89] checked:border-[#1A8F89]" />
+      <label for="toggle-cancelled" class="text-[0.8125rem] font-semibold text-[#1A1D23] cursor-pointer">
+        Tampilkan Pesanan Batal
+      </label>
+    </div>
+  </div>
+
+  <!-- Breakdown Table -->
+  <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] overflow-hidden shadow-sm">
+    <div class="overflow-x-auto w-full">
+      <table class="w-full text-[0.875rem] border-collapse">
+        <thead>
+          <tr class="bg-[#F9F9F7] border-b border-[#E8E9ED] text-left text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">
+            <th class="py-3 px-4">Order ID</th>
+            <th class="py-3 px-4">Pembeli</th>
+            <th class="py-3 px-4">Produk</th>
+            <th class="py-3 px-4 text-right">Final IDR</th>
+            <th class="py-3 px-4 text-right">HPP IDR</th>
+            <th class="py-3 px-4 text-right">PnL</th>
+            <th class="py-3 px-4 text-center">Status</th>
+            <th class="py-3 px-4 text-right">Tanggal Selesai</th>
+          </tr>
+        </thead>
+        <tbody id="profit-tbody">
+          <!-- Populated by JS -->
+        </tbody>
+      </table>
+    </div>
+    <div id="profit-empty-state" class="hidden py-12 text-center text-[#5B606D]">
+      Tidak ada data penjualan pada kriteria pencarian saat ini.
+    </div>
+  </div>
+</AdminLayout>
+
+<script define:vars={{ orders }}>
+  // Filter state
+  let dateFrom = '';
+  let dateTo = '';
+  let showCancelled = false;
+
+  const tbody = document.getElementById('profit-tbody');
+  const emptyState = document.getElementById('profit-empty-state');
+  
+  const fromInput = document.getElementById('filter-date-from');
+  const toInput = document.getElementById('filter-date-to');
+  const cancelToggle = document.getElementById('toggle-cancelled');
+  const resetBtn = document.getElementById('btn-reset-dates');
+
+  // KPI elements
+  const kpiOrders = document.getElementById('kpi-orders');
+  const kpiRevenue = document.getElementById('kpi-revenue');
+  const kpiHpp = document.getElementById('kpi-hpp');
+  const kpiProfit = document.getElementById('kpi-profit');
+
+  function getFilteredOrders() {
+    return orders.filter(o => {
+      // Status filter
+      if (o.status === 'Cancelled' && !showCancelled) return false;
+
+      // Date range filter based on settled_at / cancelled_at
+      const dateStr = o.settled_at || o.cancelled_at;
+      if (!dateStr) return false;
+      const oDate = new Date(dateStr.slice(0, 10)); // YYYY-MM-DD
+
+      if (dateFrom) {
+        const fromDate = new Date(dateFrom);
+        if (oDate < fromDate) return false;
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        if (oDate > toDate) return false;
+      }
+
+      return true;
+    });
+  }
+
+  function calculateKPIs(filtered) {
+    const settled = filtered.filter(o => o.status === 'Bought');
+    
+    let totalOrders = settled.length;
+    let totalRevenue = 0;
+    let totalHpp = 0;
+
+    settled.forEach(o => {
+      const priceFinal = o.price_idr_final ?? 0;
+      const qty = o.qty ?? 1;
+      
+      // Revenue = final IDR charged to buyer
+      totalRevenue += priceFinal * qty;
+
+      // HPP: use actual bought_price_jpy if admin recorded it, otherwise fall back to estimated price_jpy
+      const actualJpy = o.bought_price_jpy ?? o.price_jpy ?? 0;
+      const rate = o.jpy_rate_snapshot ?? 110;
+      totalHpp += Math.round(actualJpy * qty * rate);
+    });
+
+    const grossProfit = totalRevenue - totalHpp;
+
+    if (kpiOrders) kpiOrders.textContent = String(totalOrders);
+    if (kpiRevenue) kpiRevenue.textContent = `Rp ${totalRevenue.toLocaleString('id-ID')}`;
+    if (kpiHpp) kpiHpp.textContent = `Rp ${totalHpp.toLocaleString('id-ID')}`;
+    if (kpiProfit) {
+      kpiProfit.textContent = `Rp ${grossProfit.toLocaleString('id-ID')}`;
+      kpiProfit.style.color = grossProfit >= 0 ? '#2E8B57' : '#D1453B';
+    }
+  }
+
+  function renderTable(filtered) {
+    if (!tbody || !emptyState) return;
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = '';
+      emptyState.classList.remove('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+
+    tbody.innerHTML = filtered.map(o => {
+      const isCancelled = o.status === 'Cancelled';
+      const oDateStr = o.settled_at || o.cancelled_at;
+      const formattedDate = oDateStr 
+        ? new Date(oDateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+        : '—';
+      
+      const qty = o.qty ?? 1;
+      const finalPriceStr = o.price_idr_final 
+        ? `Rp ${(o.price_idr_final * qty).toLocaleString('id-ID')}` 
+        : '—';
+
+      // HPP: prefer actual bought_price_jpy, fall back to estimated price_jpy
+      const actualJpy = o.bought_price_jpy ?? o.price_jpy;
+      const hppLabel = o.bought_price_jpy ? '' : '<span title="Estimasi (harga beli aktual belum diisi)" style="font-size:0.65rem;color:#8B5E0A;margin-left:2px">EST</span>';
+      const hppStr = actualJpy 
+        ? `Rp ${Math.round(actualJpy * qty * (o.jpy_rate_snapshot ?? 110)).toLocaleString('id-ID')}${hppLabel}`
+        : '—';
+
+      // PnL for this order row
+      const pnl = (o.price_idr_final && actualJpy)
+        ? (o.price_idr_final * qty) - Math.round(actualJpy * qty * (o.jpy_rate_snapshot ?? 110))
+        : null;
+      const pnlStr = pnl !== null
+        ? `<span style="color:${pnl >= 0 ? '#2E8B57' : '#D1453B'};font-weight:600">Rp ${pnl.toLocaleString('id-ID')}</span>`
+        : '—';
+      
+      const rowClass = isCancelled ? 'line-through opacity-60 bg-red-50/10' : '';
+
+      return `
+        <tr class="border-b border-[#E8E9ED] hover:bg-[#F9F9F7]/30 transition-colors ${rowClass}">
+          <td class="py-3 px-4 font-mono font-semibold text-[#1A1D23]">${o.id}</td>
+          <td class="py-3 px-4">
+            <div class="font-semibold text-[#1A1D23]">${o.buyer_name}</div>
+            <div class="text-[0.75rem] text-[#5B606D]">${o.buyer_email}</div>
+          </td>
+          <td class="py-3 px-4 max-w-[200px] truncate font-semibold text-[#1A1D23]">${o.name}</td>
+          <td class="py-3 px-4 text-right font-mono font-semibold">${finalPriceStr}</td>
+          <td class="py-3 px-4 text-right font-mono text-[#5B606D]">${hppStr}</td>
+          <td class="py-3 px-4 text-right font-mono">${pnlStr}</td>
+          <td class="py-3 px-4 text-center">
+            <span class="px-[6px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em] badge-${o.status.toLowerCase()}">
+              ${o.status}
+            </span>
+          </td>
+          <td class="py-3 px-4 text-right text-[0.8125rem] text-[#5B606D]">${formattedDate}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function update() {
+    const filtered = getFilteredOrders();
+    calculateKPIs(filtered);
+    renderTable(filtered);
+  }
+
+  // Event Listeners
+  fromInput?.addEventListener('change', (e) => {
+    dateFrom = e.target.value;
+    update();
+  });
+
+  toInput?.addEventListener('change', (e) => {
+    dateTo = e.target.value;
+    update();
+  });
+
+  cancelToggle?.addEventListener('change', (e) => {
+    showCancelled = e.target.checked;
+    update();
+  });
+
+  resetBtn?.addEventListener('click', () => {
+    dateFrom = '';
+    dateTo = '';
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+    update();
+  });
+
+  // Initial Run
+  update();
+</script>
