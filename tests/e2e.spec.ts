@@ -1547,3 +1547,50 @@ test.describe('CUJ: API Tokens Management & Variant Buy Links', () => {
     await page.request.delete(`/api/products/${product.id}`);
   });
 });
+
+// ============================================================
+// CUJ: Catalog Links and Pricing Audit
+// ============================================================
+test.describe('CUJ: Catalog Links and Pricing Audit', () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, 'admin');
+    await page.goto('/admin/products/audit');
+  });
+
+  test('navigation to page works and layout is rendered', async ({ page }) => {
+    await expect(page.locator('h2').first()).toContainText('Audit Katalog');
+    await expect(page.locator('#search-input')).toBeVisible();
+    await expect(page.locator('#category-filter')).toBeVisible();
+    await expect(page.locator('#issue-filter')).toBeVisible();
+  });
+
+  test('can expand product, change JPY price, and save it', async ({ page }) => {
+    // Find first toggle button and click it
+    const toggleBtn = page.locator('.toggle-btn').first();
+    await toggleBtn.click();
+
+    // Check if variant container is visible
+    const firstProductRow = page.locator('.product-row').first();
+    const productId = await firstProductRow.getAttribute('data-id');
+    const container = page.locator(`#variants-row-${productId}`);
+    await expect(container).toBeVisible();
+
+    // Change variant JPY price
+    const priceInput = container.locator('.variant-price-jpy').first();
+    const oldPriceStr = await priceInput.inputValue();
+    const newPriceVal = (parseInt(oldPriceStr, 10) || 100) + 10;
+
+    await priceInput.fill(newPriceVal.toString());
+
+    // Trigger save
+    const saveBtn = container.locator('.btn-save-variant').first();
+    await saveBtn.click();
+    await expect(saveBtn).toContainText('Selesai!');
+
+    // Re-verify value after page reload to confirm database persistence
+    await page.reload();
+    await page.locator('.toggle-btn').first().click();
+    const updatedPriceStr = await page.locator('.variant-price-jpy').first().inputValue();
+    expect(parseInt(updatedPriceStr, 10)).toBe(newPriceVal);
+  });
+});
