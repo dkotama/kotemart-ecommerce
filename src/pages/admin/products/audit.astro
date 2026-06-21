@@ -301,8 +301,318 @@ try {
       `;
     }
 
+    function recalculateProductIssues(productId: string) {
+      const product = products.find((p: any) => p.id === productId);
+      if (!product) return;
+
+      let missingLinks = 0;
+      let missingImages = 0;
+      const activeVariants = product.variants || [];
+
+      for (const v of activeVariants) {
+        if (!v.product_url || v.product_url.trim() === '') {
+          missingLinks++;
+        }
+        if (!v.images || v.images.length === 0 || (v.images.length === 1 && !v.images[0])) {
+          missingImages++;
+        }
+      }
+
+      product.missing_links_count = missingLinks;
+      product.missing_images_count = missingImages;
+      product.variant_count = activeVariants.length;
+
+      const row = tbody.querySelector(`.product-row[data-id="${productId}"]`) as HTMLTableRowElement | null;
+      if (row) {
+        const variantTd = row.cells[4];
+        if (variantTd) {
+          variantTd.innerHTML = `
+            <span class="bg-[#D5EDEB] text-[#0F726E] px-2 py-0.5 rounded-full text-[0.6875rem] font-semibold">
+              ${activeVariants.length} varian
+            </span>
+          `;
+        }
+
+        const badgeTd = row.cells[5];
+        if (badgeTd) {
+          let badgesHtml = '';
+          const hasMissingLink = missingLinks > 0;
+          const hasMissingImage = missingImages > 0;
+
+          if (hasMissingLink) {
+            badgesHtml += `<span class="bg-[#FDF2F2] text-[#D1453B] border border-[#FDE2E2] px-[8px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em] mr-1.5">Tanpa Link</span>`;
+          }
+          if (hasMissingImage) {
+            badgesHtml += `<span class="bg-[#FFF8F2] text-[#D97706] border border-[#FFEBE0] px-[8px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em] mr-1.5">Tanpa Foto</span>`;
+          }
+          if (!hasMissingLink && !hasMissingImage) {
+            badgesHtml += `<span class="bg-[#DEF7EC] text-[#03543F] border border-[#BCF0DA] px-[8px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em]">Lengkap</span>`;
+          }
+          badgeTd.innerHTML = badgesHtml;
+        }
+
+        const firstVariantImg = activeVariants[0]?.images?.[0];
+        const fallbackUrl = 'https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=800';
+        const imgSrc = firstVariantImg || product.images?.[0] || fallbackUrl;
+        const imgEl = row.cells[1]?.querySelector('img');
+        if (imgEl) {
+          imgEl.src = imgSrc;
+        }
+      }
+    }
+
     function attachVariantActionListeners(productId: string) {
-      // Stub function to be implemented later
+      const container = document.getElementById(`variants-container-${productId}`);
+      if (!container) return;
+
+      // 1. Live JPY to IDR calculation
+      const jpyInputs = container.querySelectorAll('.variant-price-jpy');
+      jpyInputs.forEach((input: any) => {
+        input.addEventListener('input', () => {
+          const variantId = input.getAttribute('data-variant-id');
+          const jpyVal = parseFloat(input.value) || 0;
+          const idrVal = Math.ceil(jpyVal * rate * (1 + fee / 100) / 1000) * 1000;
+          const idrEl = document.getElementById(`variant-idr-${variantId}`);
+          if (idrEl) {
+            idrEl.textContent = 'Rp ' + idrVal.toLocaleString('id-ID');
+          }
+        });
+      });
+
+      // 2. Live Image URL input
+      const imgUrlInputs = container.querySelectorAll('.variant-image-url');
+      imgUrlInputs.forEach((input: any) => {
+        input.addEventListener('input', () => {
+          const variantId = input.getAttribute('data-variant-id');
+          const previewEl = document.getElementById(`variant-preview-${variantId}`);
+          if (previewEl) {
+            const val = input.value.trim();
+            if (val) {
+              previewEl.style.backgroundImage = `url('${val}')`;
+            } else {
+              previewEl.style.backgroundImage = '';
+            }
+          }
+        });
+      });
+
+      // 3. Live URL input
+      const urlInputs = container.querySelectorAll('.variant-url');
+      urlInputs.forEach((input: any) => {
+        input.addEventListener('input', () => {
+          const variantId = input.getAttribute('data-variant-id');
+          const linkBtn = document.getElementById(`variant-link-btn-${variantId}`) as HTMLAnchorElement | null;
+          if (linkBtn) {
+            const val = input.value.trim();
+            linkBtn.href = val || '#';
+            if (val) {
+              linkBtn.classList.remove('pointer-events-none', 'opacity-50');
+            } else {
+              linkBtn.classList.add('pointer-events-none', 'opacity-50');
+            }
+          }
+        });
+      });
+
+      // 4. File selector trigger
+      const uploadBtns = container.querySelectorAll('.btn-variant-upload');
+      uploadBtns.forEach((btn: any) => {
+        btn.addEventListener('click', () => {
+          const variantId = btn.getAttribute('data-variant-id');
+          const fileInput = container.querySelector(`.variant-file-input[data-variant-id="${variantId}"]`) as HTMLInputElement | null;
+          if (fileInput) {
+            fileInput.click();
+          }
+        });
+      });
+
+      // 5. File upload handler
+      const fileInputs = container.querySelectorAll('.variant-file-input');
+      fileInputs.forEach((fileInput: any) => {
+        fileInput.addEventListener('change', async () => {
+          const variantId = fileInput.getAttribute('data-variant-id');
+          const file = fileInput.files?.[0];
+          if (!file) return;
+
+          const uploadBtn = container.querySelector(`.btn-variant-upload[data-variant-id="${variantId}"]`) as HTMLButtonElement | null;
+          const originalText = uploadBtn ? uploadBtn.textContent : 'Upload Foto';
+
+          if (uploadBtn) {
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading...';
+          }
+
+          try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const res = await fetch('/api/products/upload-photo', {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              alert(errData.error || 'Upload gagal');
+              return;
+            }
+
+            const data = await res.json();
+            const imageUrlInput = container.querySelector(`.variant-image-url[data-variant-id="${variantId}"]`) as HTMLInputElement | null;
+            if (imageUrlInput) {
+              imageUrlInput.value = data.url;
+              const previewEl = document.getElementById(`variant-preview-${variantId}`);
+              if (previewEl) {
+                previewEl.style.backgroundImage = `url('${data.url}')`;
+              }
+              imageUrlInput.dispatchEvent(new Event('input'));
+            }
+          } catch (err) {
+            console.error(err);
+            alert('Gagal mengunggah foto');
+          } finally {
+            if (uploadBtn) {
+              uploadBtn.disabled = false;
+              uploadBtn.textContent = originalText;
+            }
+            fileInput.value = '';
+          }
+        });
+      });
+
+      // 6. Save handler
+      const saveBtns = container.querySelectorAll('.btn-save-variant');
+      saveBtns.forEach((btn: any) => {
+        btn.addEventListener('click', async () => {
+          const variantId = btn.getAttribute('data-variant-id');
+          const nameInput = container.querySelector(`.variant-name[data-variant-id="${variantId}"]`) as HTMLInputElement | null;
+          const urlInput = container.querySelector(`.variant-url[data-variant-id="${variantId}"]`) as HTMLInputElement | null;
+          const priceInput = container.querySelector(`.variant-price-jpy[data-variant-id="${variantId}"]`) as HTMLInputElement | null;
+          const imageInput = container.querySelector(`.variant-image-url[data-variant-id="${variantId}"]`) as HTMLInputElement | null;
+
+          if (!nameInput || !priceInput) return;
+
+          const name = nameInput.value.trim();
+          if (!name) {
+            alert('Nama varian harus diisi');
+            return;
+          }
+
+          const priceJpy = parseInt(priceInput.value, 10);
+          if (isNaN(priceJpy) || priceJpy < 0) {
+            alert('Harga JPY tidak valid');
+            return;
+          }
+
+          const url = urlInput ? urlInput.value.trim() : '';
+          const imageUrl = imageInput ? imageInput.value.trim() : '';
+
+          const originalText = btn.textContent;
+          const originalClassName = btn.className;
+
+          btn.disabled = true;
+          btn.textContent = 'Menyimpan...';
+
+          try {
+            const res = await fetch(`/api/products/${productId}/variants/${variantId}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                variant_name: name,
+                product_url: url || null,
+                price_jpy: priceJpy,
+                images: imageUrl ? [imageUrl] : [],
+              }),
+            });
+
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              alert(errData.error || 'Gagal menyimpan varian');
+              btn.disabled = false;
+              btn.textContent = originalText;
+              return;
+            }
+
+            const updatedVariant = await res.json();
+
+            const product = products.find((p: any) => p.id === productId);
+            if (product && product.variants) {
+              const idx = product.variants.findIndex((v: any) => v.id === variantId);
+              if (idx !== -1) {
+                product.variants[idx] = {
+                  ...product.variants[idx],
+                  variant_name: updatedVariant.variant_name,
+                  product_url: updatedVariant.product_url,
+                  price_jpy: updatedVariant.price_jpy,
+                  images: (() => {
+                    try {
+                      return typeof updatedVariant.images === 'string'
+                        ? JSON.parse(updatedVariant.images || '[]')
+                        : (Array.isArray(updatedVariant.images) ? updatedVariant.images : []);
+                    } catch {
+                      return [];
+                    }
+                  })()
+                };
+              }
+            }
+
+            recalculateProductIssues(productId);
+
+            btn.textContent = 'Selesai!';
+            btn.className = originalClassName
+              .replace('bg-[#0F726E]', 'bg-green-600')
+              .replace('hover:bg-[#0A5D59]', 'hover:bg-green-700');
+
+            setTimeout(() => {
+              btn.textContent = originalText;
+              btn.className = originalClassName;
+              btn.disabled = false;
+            }, 2000);
+
+          } catch (err) {
+            console.error(err);
+            alert('Gagal menyimpan varian');
+            btn.disabled = false;
+            btn.textContent = originalText;
+          }
+        });
+      });
+
+      // 7. Delete handler
+      const deleteBtns = container.querySelectorAll('.btn-delete-variant');
+      deleteBtns.forEach((btn: any) => {
+        btn.addEventListener('click', async () => {
+          const variantId = btn.getAttribute('data-variant-id');
+          if (!confirm('Apakah Anda yakin ingin menghapus varian ini?')) return;
+
+          try {
+            const res = await fetch(`/api/products/${productId}/variants/${variantId}`, {
+              method: 'DELETE',
+            });
+
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              alert(errData.error || 'Gagal menghapus varian');
+              return;
+            }
+
+            const product = products.find((p: any) => p.id === productId);
+            if (product && product.variants) {
+              product.variants = product.variants.filter((v: any) => v.id !== variantId);
+            }
+
+            renderVariantsForProduct(productId);
+            recalculateProductIssues(productId);
+
+          } catch (err) {
+            console.error(err);
+            alert('Gagal menghapus varian');
+          }
+        });
+      });
     }
 
     function attachQuickAddListeners(productId: string) {
