@@ -76,5 +76,216 @@ try {
     data-fee-pct={global_fee_pct}
     data-categories={JSON.stringify(product_categories)}
   >
+    <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <h2 class="text-[1.5rem] font-bold text-[#1A1D23] tracking-[-0.02em]">Audit Katalog</h2>
+        <p class="text-[0.8125rem] text-[#5B606D]">Audit dan kelola data link/foto untuk varian produk jastip.</p>
+      </div>
+    </div>
+
+    <!-- Filter Container -->
+    <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] p-4 mb-6 shadow-sm flex flex-col md:flex-row gap-4">
+      <div class="flex-1 flex flex-col gap-1">
+        <label for="search-input" class="text-[0.8125rem] font-semibold text-[#1A1D23]">Cari Produk</label>
+        <input
+          type="text"
+          id="search-input"
+          placeholder="Cari nama atau deskripsi produk..."
+          class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] bg-white text-[#1A1D23]"
+        />
+      </div>
+      <div class="w-full md:w-[200px] flex flex-col gap-1">
+        <label for="category-filter" class="text-[0.8125rem] font-semibold text-[#1A1D23]">Kategori</label>
+        <select
+          id="category-filter"
+          class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] bg-white text-[#1A1D23]"
+        >
+          <option value="all">Semua Kategori</option>
+          {product_categories.map((cat) => (
+            <option value={cat}>{cat}</option>
+          ))}
+        </select>
+      </div>
+      <div class="w-full md:w-[200px] flex flex-col gap-1">
+        <label for="issue-filter" class="text-[0.8125rem] font-semibold text-[#1A1D23]">Filter Masalah</label>
+        <select
+          id="issue-filter"
+          class="w-full h-[40px] px-3 border border-[#E8E9ED] rounded-[6px] text-[0.875rem] focus:outline-none focus:ring-2 focus:ring-[#1A8F89] bg-white text-[#1A1D23]"
+        >
+          <option value="all">Semua Produk</option>
+          <option value="has_issue">Bermasalah (Tanpa Link / Foto)</option>
+          <option value="missing_link">Tanpa Link</option>
+          <option value="missing_image">Tanpa Foto</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Table Container -->
+    <div class="bg-[#FFFFFF] border border-[#E8E9ED] rounded-[10px] overflow-hidden shadow-sm mb-6">
+      <div class="overflow-x-auto w-full">
+        <table id="products-table" class="w-full text-[0.875rem] border-collapse">
+          <thead>
+            <tr class="bg-[#F9F9F7] border-b border-[#E8E9ED] text-left text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-[#5B606D]">
+              <th class="py-3 px-4 w-[80px] text-center">Toggle</th>
+              <th class="py-3 px-4 w-[80px]">Thumbnail</th>
+              <th class="py-3 px-4">Name</th>
+              <th class="py-3 px-4">Category</th>
+              <th class="py-3 px-4 text-center">Variants</th>
+              <th class="py-3 px-4">Audit Status</th>
+            </tr>
+          </thead>
+          <tbody id="products-tbody">
+            <!-- Rendered dynamically via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </AdminLayout>
+
+<script>
+  function init() {
+    const root = document.getElementById('audit-root');
+    if (!root) return;
+
+    const products = JSON.parse(root.dataset.products || '[]');
+    const rate = parseFloat(root.dataset.jpyRate || '0');
+    const fee = parseFloat(root.dataset.feePct || '0');
+    const categories = JSON.parse(root.dataset.categories || '[]');
+
+    const searchInput = document.getElementById('search-input') as HTMLInputElement | null;
+    const categoryFilter = document.getElementById('category-filter') as HTMLSelectElement | null;
+    const issueFilter = document.getElementById('issue-filter') as HTMLSelectElement | null;
+    const tbody = document.getElementById('products-tbody');
+
+    if (!searchInput || !categoryFilter || !issueFilter || !tbody) return;
+
+    function renderTable() {
+      if (!searchInput || !categoryFilter || !issueFilter || !tbody) return;
+
+      const searchVal = searchInput.value.toLowerCase().trim();
+      const catVal = categoryFilter.value;
+      const issueVal = issueFilter.value;
+
+      const filtered = products.filter((p: any) => {
+        const matchesSearch = !searchVal ||
+          p.name.toLowerCase().includes(searchVal) ||
+          (p.description && p.description.toLowerCase().includes(searchVal));
+
+        const matchesCategory = catVal === 'all' || p.category === catVal;
+
+        let matchesIssue = true;
+        if (issueVal === 'missing_link') {
+          matchesIssue = Number(p.missing_links_count) > 0;
+        } else if (issueVal === 'missing_image') {
+          matchesIssue = Number(p.missing_images_count) > 0;
+        } else if (issueVal === 'has_issue') {
+          matchesIssue = Number(p.missing_links_count) > 0 || Number(p.missing_images_count) > 0;
+        }
+
+        return matchesSearch && matchesCategory && matchesIssue;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="py-12 text-center text-[#5B606D]">
+              Tidak ada produk yang ditemukan.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map((p: any) => {
+        const firstVariantImg = p.variants?.[0]?.images?.[0];
+        const fallbackUrl = 'https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=800';
+        const imgSrc = firstVariantImg || p.images?.[0] || fallbackUrl;
+
+        let badgesHtml = '';
+        const missingLink = Number(p.missing_links_count) > 0;
+        const missingImage = Number(p.missing_images_count) > 0;
+
+        if (missingLink) {
+          badgesHtml += `<span class="bg-[#FDF2F2] text-[#D1453B] border border-[#FDE2E2] px-[8px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em] mr-1.5">Tanpa Link</span>`;
+        }
+        if (missingImage) {
+          badgesHtml += `<span class="bg-[#FFF8F2] text-[#D97706] border border-[#FFEBE0] px-[8px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em] mr-1.5">Tanpa Foto</span>`;
+        }
+        if (!missingLink && !missingImage) {
+          badgesHtml += `<span class="bg-[#DEF7EC] text-[#03543F] border border-[#BCF0DA] px-[8px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em]">Lengkap</span>`;
+        }
+
+        return `
+          <tr class="border-b border-[#E8E9ED] hover:bg-[#F9F9F7]/50 transition-colors product-row" data-id="${p.id}">
+            <td class="py-3 px-4 text-center">
+              <button class="toggle-btn p-1 hover:bg-[#E8E9ED] rounded-[4px] transition-colors focus:outline-none" data-product-id="${p.id}">
+                <svg class="w-4 h-4 text-[#5B606D] transform transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </td>
+            <td class="py-3 px-4">
+              <img src="${imgSrc}" alt="${p.name}" class="w-12 h-12 object-cover rounded-[4px] border border-[#E8E9ED]" />
+            </td>
+            <td class="py-3 px-4 font-bold text-[#1A1D23] max-w-[280px] truncate">${p.name}</td>
+            <td class="py-3 px-4">
+              <span class="bg-[#E8E9ED] text-[#1A1D23] px-[8px] py-[2px] rounded-[3px] text-[0.625rem] font-semibold uppercase tracking-[0.1em]">
+                ${p.category}
+              </span>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <span class="bg-[#D5EDEB] text-[#0F726E] px-2 py-0.5 rounded-full text-[0.6875rem] font-semibold">
+                ${p.variant_count} varian
+              </span>
+            </td>
+            <td class="py-3 px-4">${badgesHtml}</td>
+          </tr>
+          <tr class="hidden variant-subrow bg-[#FAF8F5]/30 border-b border-[#E8E9ED]" id="variants-row-${p.id}">
+            <td colspan="6" class="p-4">
+              <div id="variants-container-${p.id}"></div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    tbody.addEventListener('click', (e) => {
+      const toggleBtn = (e.target as HTMLElement).closest('.toggle-btn');
+      if (!toggleBtn) return;
+      const productId = toggleBtn.getAttribute('data-product-id');
+      if (!productId) return;
+      const subrow = document.getElementById(`variants-row-${productId}`);
+      if (!subrow) return;
+
+      const isHidden = subrow.classList.contains('hidden');
+      if (isHidden) {
+        subrow.classList.remove('hidden');
+        const svg = toggleBtn.querySelector('svg');
+        if (svg) svg.classList.add('rotate-90');
+        renderVariantsForProduct(productId);
+      } else {
+        subrow.classList.add('hidden');
+        const svg = toggleBtn.querySelector('svg');
+        if (svg) svg.classList.remove('rotate-90');
+      }
+    });
+
+    function renderVariantsForProduct(productId: string) {
+      // Dummy/empty function for now
+    }
+
+    searchInput.addEventListener('input', renderTable);
+    categoryFilter.addEventListener('change', renderTable);
+    issueFilter.addEventListener('change', renderTable);
+
+    // Initial render
+    renderTable();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+</script>
