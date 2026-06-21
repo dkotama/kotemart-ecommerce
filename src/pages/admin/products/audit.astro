@@ -1,0 +1,80 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../layout.astro';
+import { env } from 'cloudflare:workers';
+import { getSettings } from '../../../lib/pricing';
+
+const user = Astro.locals.user;
+
+let products: any[] = [];
+let jpy_to_idr_rate = 110;
+let global_fee_pct = 5;
+let product_categories: string[] = [];
+
+try {
+  const { DB } = (env as any);
+  if (DB) {
+    const settings = await getSettings(DB);
+    jpy_to_idr_rate = settings.jpy_to_idr_rate;
+    global_fee_pct = settings.global_fee_pct;
+    product_categories = settings.product_categories;
+
+    const productsResult = await DB.prepare(`
+      SELECT p.*,
+        COALESCE(SUM(CASE WHEN v.is_deleted = 0 THEN 1 ELSE 0 END), 0) AS variant_count,
+        COALESCE(SUM(CASE WHEN v.is_deleted = 0 AND (v.product_url IS NULL OR v.product_url = '') THEN 1 ELSE 0 END), 0) AS missing_links_count,
+        COALESCE(SUM(CASE WHEN v.is_deleted = 0 AND (v.images IS NULL OR v.images = '' OR v.images = '[]') THEN 1 ELSE 0 END), 0) AS missing_images_count
+      FROM products p
+      LEFT JOIN product_variants v ON v.product_id = p.id
+      WHERE p.is_deleted = 0
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+    `).all();
+
+    const variantsResult = await DB.prepare(`
+      SELECT * FROM product_variants
+      WHERE is_deleted = 0
+      ORDER BY sort_order ASC
+    `).all();
+
+    const productsRaw = productsResult?.results || [];
+    const variantsRaw = variantsResult?.results || [];
+
+    const productsMap = new Map();
+    for (const p of productsRaw) {
+      productsMap.set(p.id, {
+        ...p,
+        images: (() => { try { return JSON.parse(p.images || '[]'); } catch { return []; } })(),
+        notes: (() => { try { return JSON.parse(p.notes || '[]'); } catch { return []; } })(),
+        variants: []
+      });
+    }
+
+    for (const v of variantsRaw) {
+      const product = productsMap.get(v.product_id);
+      if (product) {
+        product.variants.push({
+          ...v,
+          images: (() => { try { return JSON.parse(v.images || '[]'); } catch { return []; } })()
+        });
+      }
+    }
+
+    products = Array.from(productsMap.values());
+  }
+} catch (err) {
+  console.error('Audit products query error:', err);
+}
+---
+
+<AdminLayout title="Audit Katalog" user={user} currentPath="/admin/products/audit">
+  <div
+    id="audit-root"
+    data-products={JSON.stringify(products)}
+    data-jpy-rate={jpy_to_idr_rate}
+    data-fee-pct={global_fee_pct}
+    data-categories={JSON.stringify(product_categories)}
+  >
+  </div>
+</AdminLayout>
