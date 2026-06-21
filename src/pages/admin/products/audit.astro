@@ -616,7 +616,98 @@ try {
     }
 
     function attachQuickAddListeners(productId: string) {
-      // Stub function to be implemented later
+      const container = document.getElementById(`variants-container-${productId}`);
+      if (!container) return;
+
+      const priceInput = container.querySelector('.quick-variant-price') as HTMLInputElement | null;
+      const idrEl = document.getElementById(`quick-idr-${productId}`);
+      if (priceInput && idrEl) {
+        priceInput.addEventListener('input', () => {
+          const jpyVal = parseFloat(priceInput.value) || 0;
+          const idrVal = Math.ceil(jpyVal * rate * (1 + fee / 100) / 1000) * 1000;
+          idrEl.textContent = 'Rp ' + idrVal.toLocaleString('id-ID');
+        });
+      }
+
+      const nameInput = container.querySelector('.quick-variant-name') as HTMLInputElement | null;
+      const urlInput = container.querySelector('.quick-variant-url') as HTMLInputElement | null;
+      const submitBtn = container.querySelector('.btn-add-variant-submit') as HTMLButtonElement | null;
+
+      if (submitBtn) {
+        submitBtn.addEventListener('click', async () => {
+          if (!nameInput || !priceInput) return;
+
+          const name = nameInput.value.trim();
+          if (!name) {
+            alert('Nama varian harus diisi');
+            return;
+          }
+
+          const priceJpy = parseInt(priceInput.value, 10);
+          if (isNaN(priceJpy) || priceJpy < 0) {
+            alert('Harga JPY tidak valid');
+            return;
+          }
+
+          const url = urlInput ? urlInput.value.trim() : '';
+
+          const originalText = submitBtn.textContent;
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Menambahkan...';
+
+          try {
+            const res = await fetch(`/api/products/${productId}/variants`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                variant_name: name,
+                price_jpy: priceJpy,
+                product_url: url || null,
+              }),
+            });
+
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              alert(errData.error || 'Gagal menambahkan varian');
+              submitBtn.disabled = false;
+              submitBtn.textContent = originalText;
+              return;
+            }
+
+            const newVariant = await res.json();
+            const parsedImages = (() => {
+              try {
+                return typeof newVariant.images === 'string'
+                  ? JSON.parse(newVariant.images || '[]')
+                  : (Array.isArray(newVariant.images) ? newVariant.images : []);
+              } catch {
+                return [];
+              }
+            })();
+
+            const product = products.find((p: any) => p.id === productId);
+            if (product) {
+              if (!product.variants) {
+                product.variants = [];
+              }
+              product.variants.push({
+                ...newVariant,
+                images: parsedImages,
+              });
+            }
+
+            renderVariantsForProduct(productId);
+            recalculateProductIssues(productId);
+          } catch (err) {
+            console.error(err);
+            alert('Gagal menambahkan varian');
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+          }
+        });
+      }
     }
 
     function renderVariantsForProduct(productId: string) {
